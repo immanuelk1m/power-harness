@@ -34,10 +34,11 @@
 - 사이트 좌표로 실제 발전소를 재식별하면 실격 사유다. 외부 발전소 데이터 조회 금지.
 - poison check(2025 라벨·미래 실적을 바꿔도 예측이 변하지 않음)를 통과해야 한다.
 
-## 허용 데이터 source (2026-10-14)
+## 허용 데이터 source (2026-10-15)
+- **데이터는 Power DB 시트(미러 `references/datasets.md`)에 있는 데이터셋(PW-xxx)만 쓴다(사용자 2026-10-15).** 워커는 외부 데이터를 내려받지 않는다. 아래 사용자 예외도 이미 로컬에 있고 시트에 올라 있는 것만 쓸 수 있다. 새 원천 수집·기존 데이터셋 기간 연장·가중치나 재분석 다운로드가 필요한 행은 내지 않는다. 시트에 없는 데이터가 꼭 필요하다고 판단되면 행을 내지 말고 결과 요약에 '데이터 추가 제안'으로 따로 적는다.
 - **데이터셋 목록과 상태는 `references/datasets.md`를 본다.** 원본은 Google Sheet [Power DB](https://docs.google.com/spreadsheets/d/1QStrEgZsC5-5KO4excwCHBJui02m3y8SFBYH780cnE4/edit) 탭 `데이터셋 manifest`다. 행에서 데이터를 지정할 때 그 ID(PW-xxx)와 로컬 경로를 쓴다.
 - 기본: 대회 원자료(sites, generation, forecast_wa/wb, observed_wa/wb, smp, baseline.py)만. 그 밖의 외부 데이터·외부 사전학습 모델은 금지다.
-- 사용자 예외(AGENTS.md): Himawari-8/9 위성(NOAA Open Data), Baguan 계열 가중치·코드와 그 로컬 재현 학습, Chronos-2 가중치(frozen prior, fine-tune 금지), PARA-PV 코드, ERA5/CLDAS/JAXA 재분석(승인됐으나 미수집), SunCastNet용 IFS/GFS 아카이브·가중치. 출처 URL·revision·checksum·다운로드 날짜를 기록하고, 대회 데이터를 외부로 보내지 않는다. 새 외부 source는 사용자 결정이 필요하므로 행으로 내지 않는다.
+- 사용자 예외(AGENTS.md): Himawari-8/9 위성(NOAA Open Data), Baguan 계열 가중치·코드와 그 로컬 재현 학습, Chronos-2 가중치(frozen prior, fine-tune 금지), PARA-PV 코드, ERA5/CLDAS/JAXA 재분석(승인됐으나 미수집 — 2026-10-15부터 수집 금지라 사용 불가), SunCastNet용 IFS/GFS 아카이브·가중치. 출처 URL·revision·checksum·다운로드 날짜를 기록하고, 대회 데이터를 외부로 보내지 않는다. 새 외부 source는 사용자 결정이 필요하므로 행으로 내지 않는다.
 - 외부 source는 평가창(2025-01~05)의 발행 시각마다 그때 얻을 수 있었어야 한다. 바이트 단위 과거 이력 입증이 없으면 문서화된 보수적 지연 상수를 행에 적는다.
 
 ## 자원 (워커 1개 기준)

@@ -10,7 +10,7 @@ power-harness 스킬의 절차를 처음부터 끝까지 그대로 실행하세�
 - https://raw.githubusercontent.com/immanuelk1m/power-harness/main/references/diagnostics.md
 - https://raw.githubusercontent.com/immanuelk1m/power-harness/main/references/heuristics.md
 - https://raw.githubusercontent.com/immanuelk1m/power-harness/main/references/datasets.md
-결과 첫 줄에 SKILL.md에 적힌 버전(`power-harness v1`)을 출력하세요. v1이 아니면 실행하지 말고 그 사실만 알려 주세요.
+결과 첫 줄에 SKILL.md에 적힌 버전(`power-harness v1.1`)을 출력하세요. v1.1이 아니면 실행하지 말고 그 사실만 알려 주세요.
 
 - 시트: https://docs.google.com/spreadsheets/d/1eqmgRn3qJH_44Bkv14piwzhADU2fWZL8-p-d6EzF-nw/edit?gid=253#gid=253 (`발전량 연구`, `발전량 큐` 최신 원본 전체)
 - 데이터셋 manifest: https://docs.google.com/spreadsheets/d/1QStrEgZsC5-5KO4excwCHBJui02m3y8SFBYH780cnE4 (Power DB; 사용 중·평가된·중단된 데이터셋과 인과 규칙. 미러 `references/datasets.md`)

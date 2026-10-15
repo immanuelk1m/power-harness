@@ -5,7 +5,7 @@ description: 발전량 예측 연구(power_forecast, OIBC 2026 태양광 253개�
 
 # power-harness
 
-**버전: v1 (2026-10-14).** 실행 결과의 첫 줄에 `power-harness v1`을 출력한다. 원본은 https://github.com/immanuelk1m/power-harness (main)이다. 업로드된 사본과 내용이 다르면 GitHub 원본을 따른다.
+**버전: v1.1 (2026-10-15).** 실행 결과의 첫 줄에 `power-harness v1.1`을 출력한다. 원본은 https://github.com/immanuelk1m/power-harness (main)이다. 업로드된 사본과 내용이 다르면 GitHub 원본을 따른다.
 
 로컬 워커는 이 스킬이 `발전량 큐`에 쓴 행 하나를 받는다. 그 행을 사양 그대로 구현해 2025 평가창 전체에서 seed 0/1/2로 평가한다. 행의 `사양·지시` 칸이 곧 워커의 작업 지시다. 그래서 행 품질이 실험 품질을 결정한다.
 
