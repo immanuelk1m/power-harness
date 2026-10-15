@@ -1,9 +1,9 @@
 # 데이터셋 manifest (발전량)
 
-원본은 Google Sheet [Power DB](https://docs.google.com/spreadsheets/d/1QStrEgZsC5-5KO4excwCHBJui02m3y8SFBYH780cnE4/edit) 탭 `데이터셋 manifest`다. 이 파일은 그 시트의 미러다(2026-10-14 기준, 열 일부). 시트를 열 수 있으면 시트를 우선한다.
+원본은 Google Sheet [Power DB](https://docs.google.com/spreadsheets/d/1QStrEgZsC5-5KO4excwCHBJui02m3y8SFBYH780cnE4/edit) 탭 `데이터셋 manifest`다. 이 파일은 그 시트의 미러다(2026-10-14 기준, 열 일부). 실행 시 최신 시트를 반드시 확인한다. 아래 표에만 남고 live manifest에는 없는 항목은 현재 사용 가능으로 간주하지 않는다. 시트를 읽지 못하면 미러만으로 데이터 가용성을 확정하지 않는다.
 
 쓰는 법:
-- 후보 행이 쓰는 데이터는 아래 ID(PW-xxx)와 로컬 경로로 지정한다. 표에 없는 새 source는 `references/contract.md`의 허용·인과 규칙을 따른다.
+- 후보 행이 쓰는 데이터는 live manifest에서 확인한 ID(PW-xxx)와 로컬 경로로 지정한다. 표에 없는 새 source는 `references/contract.md`의 허용·인과 규칙을 따른다.
 - 인과 규칙 칸을 그대로 지킨다. 공통 규칙: 학습 라벨 ≤ 첫 발행 2024-12-31 17:00 KST, 발행 = 전일 17:00 KST, 2025 라벨로 재학습·보정 금지, 실현 SMP 입력 금지.
 - "평가 후 미채택" 데이터로 다시 행을 낼 때는 그 결과를 근거로 적고 무엇이 달라지는지 밝힌다. smoke만으로 기각된 것은 축이 닫힌 것이 아니다.
 - 외부 데이터는 AGENTS.md 사용자 예외 범위 안에서만 쓴다.

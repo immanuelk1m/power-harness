@@ -2,46 +2,59 @@
 
 목적: 개선처럼 보이지만 노이즈·선택 효과인 결과에 체인을 쌓지 않는다. 같은 유형의 시도를 반복하지 않는다. 실제 W 질량이 있는 곳으로 방향을 돌린다.
 2025 평가창은 반복 연구에 계속 재사용되는 단일 창이다. 같은 창에서 많은 변형을 고르면 최고치는 효과가 없어도 좋아 보인다. 그래서 H1·H2가 특히 중요하다.
+이 문서의 확정 챔피언 비교는 아직 확정 run이 없을 때 초기 REPLAY 기준선에 적용한다. 표에는 REP 확정 여부를 구분한다.
 
 ## 0. 데이터 만들기
 `발전량 연구` 탭 전체를 표로 읽고, 2025 평가창 3-seed 결과가 있는 실험만 남긴다.
 - 새 형식: 결과 칸 첫 줄 `LB| P=... base=... seeds=... W=a/b/c mean=... d_base=... grp=... mon=... type=...`, 재현은 `REP| target=... base=... d=... mean_d=... t=... verdict=...`.
 - 옛 형식: seed마다 별도 행이다. `Current Node`의 P id, `방법론` JSON의 `seed`·`variant`·`parent`, `결과`의 `W=<값>`을 뽑고, 같은 variant(seed만 다름)·같은 parent 묶음 3개를 한 실험으로 합친다. `검증 설계`가 2025-01-01 01:00~2025-06-01 00:00 3,624h가 아니면 제외한다(smoke·fold 결과).
-- 뽑지 못한 행은 제외하고 제외 수를 표에 적는다. 특정 base 값을 하드코딩하지 않는다.
+- LB/REP의 필드 경계는 `다음 key=`로 구분한다. `type=그룹·정산 결정`처럼 값 안에 공백이 있으므로 공백만으로 split하지 않는다. 원/M 단위를 통일하고 seed 순서를 명시적으로 맞춘다.
+- 같은 큐·레시피·계약·평가 범위·base의 seed 0/1/2만 한 묶음으로 만든다. seed별 parent ID가 다르면 같은 기준 레시피의 대응 seed임을 확인한 뒤 묶는다. 중복 리뷰·재기록을 제거하고 완료 시각으로 정렬한다.
+- 제외 사유를 smoke/부분 평가, 기술 실패, 계약 불일치, 중복, seed 부족, 파싱 불가로 나누어 원본 행 수와 유효 실험 묶음 수를 따로 보고한다. 미파싱 행을 전부 실패 실험으로 부르지 않는다. 특정 base 값을 하드코딩하지 않는다.
+- 기본 진단 모집단은 현재 계약의 유효한 전체 3-seed 실험이다. historical은 별도 표로만 계산한다. H5/H8의 개입 모집단에서 REPLAY·REPLICATE와 기술 재시도를 빼고 사용한 분모를 표시한다. 누락값은 0이나 미발동으로 대체하지 않고 `판정 불가`로 적는다.
 
 ```python
 # df: 컬럼 exp, base, s0, s1, s2, mean, g1, g2, type, queue_id, ts  (W 단위 통일)
 import numpy as np, pandas as pd
 def diag(df, base_id, base_seeds, N=30):
-    g = df[df.base == base_id].sort_values('ts').tail(N).copy()
+    # df는 위 규칙으로 같은 계약에서 정규화·중복 제거한 유효 실험 묶음이다.
+    g = df[df.base == base_id].sort_values('ts').tail(min(N, 30)).copy()
     g['d'] = (g['mean'] - np.mean(base_seeds)) / np.mean(base_seeds)          # 상대 차이
     g['all_lower'] = (g[['s0','s1','s2']].values < np.array(base_seeds)).all(axis=1)
-    core = g[g['d'] < 0.20]                                                     # +20% 초과(대개 구현 실패)는 σ에서 제외
+    core = g[g['d'] <= 0.20]                                                    # 큰 악화는 따로 보고; 구현 실패로 단정하지 않음
+    if len(core) < 10:
+        return dict(N=len(core), excluded=len(g)-len(core), sigma=None,
+                    null_best=None, obs_best=core['d'].min() if len(core) else None,
+                    null_like=None, status='표본 부족', table=g)
     sigma = core['d'].std(ddof=1)
     z = np.interp(len(core), [10, 20, 30, 50], [1.54, 1.87, 2.04, 2.25])
     null_best = -sigma * z
     obs_best = core['d'].min()
-    return dict(N=len(core), sigma=sigma, null_best=null_best, obs_best=obs_best,
-                null_like=bool(obs_best > null_best), table=g)
+    return dict(N=len(core), excluded=len(g)-len(core), sigma=sigma,
+                null_best=null_best, obs_best=obs_best,
+                null_like=bool(obs_best > null_best), status='계산 가능', table=g)
 ```
 
 ## H1 선택 효과
 - σ는 같은 base 위 최근 N개(최대 30) 결과의 상대 평균 차이 d의 표준편차다. 큰 악화(+20% 초과)는 σ 계산에서 빼고 따로 센다.
-- 효과가 0이어도 N번 시도하면 최고치는 약 −σ·z_N이 나온다. 관측 최고치가 이 값보다 덜 낮으면 `NULL-LIKE`다.
-- base가 자주 바뀐 계보(historical P0420 계열처럼 단계마다 base가 이동)는 "직전 base 대비 d"를 계보 전체에서 모아 같은 식으로 계산하고, 그렇게 했다고 적는다.
+- N<10이면 `표본 부족`이다. z 표의 하한을 작은 N에 외삽해 H1을 발동시키지 않는다. 다른 신호나 정보이득에 근거한 탐색은 가능하다.
+- −σ·z_N은 선택 효과의 참고치다. 서로 다른 개입의 산포는 순수 노이즈 분포가 아니므로 유의확률·무효과 증명으로 해석하지 않는다. N≥10에서 관측 최고치가 이 값보다 덜 낮으면 탐색 신호 `NULL-LIKE`로 표시한다.
+- base가 바뀌면 각 base별로 계산한다. 직전 base 대비 d를 계보 전체에서 모은 값은 참고 기술통계로만 표시하고 H1을 발동시키는 데 쓰지 않는다.
 - historical 참고: P0420 계열의 마지막 네 채택(−0.11 ~ −0.27%)은 seed 간 차이(±1.5%)보다 훨씬 작다.
 
 ## H2 미재현
 - 잠정 챔피언 = 확정 챔피언 대비 평균 −1.5% 이상이고 3 seed 모두 낮은 run. 스택 후보 = 평균 −0.8% 이상이고 3 seed 모두 낮은 run.
-- 이 중 `REP|` 결과가 없고 큐에 `power-rep-<P>` 행도 없는 run마다 REPLICATE 후보를 만든다. 감소량이 큰 순으로 실행당 최대 2건이다.
+- 이 중 `REP|` 결과가 없고 같은 대상·base·계약의 REPLICATE가 대기·실행 중도 아닌 run마다 후보를 만든다. 감소량이 큰 순으로 실행당 최대 2건이다.
 - 6-seed 짝 판정: d_k = W(후보,k) − W(base,k), k=0..5. 확정 = mean(d) < 0이고 t = mean(d)/(sd(d)/√6) ≤ −2, 또는 d_k가 6개 모두 음수. 새 seed 3개의 평균 d가 0 이상이면 "우연"이다.
 - 이미 6-seed 결과가 있는 과거 실험(예: disagree X0183 −1.28% 5/6, wxcorr X0184 −0.48% 5/6)은 같은 규칙으로 판정해 표에 적는다. 계약 이전 실험이면 현재 계약 base 위에서 다시 재야 한다.
 
 ## H3 결합 비가산
 - COMBINE 행마다 가산성 = (base − 결합 결과) ÷ Σ(base − 각 재료 결과). 0.3 미만이면 발동한다.
+- 재료와 결합의 base·계약이 다르거나 분모가 0 이하이면 `판정 불가`다.
 
 ## H5 유형 포화
 - 유형 분류는 `[단일 변경]`이 무엇을 바꾸는지로 정한다.
+  - ARCH도 실제 단계의 개입으로 분류한다. 옛 `type=arch`는 사양에서 복원하고, 모르면 미분류로 남겨 분류 범위를 보고한다.
   - 특징 블록 추가: 기존 특징 프레임에 열 추가(NWP 파생, 태양 기하 등).
   - 후처리·보정: 예측 위 bias/affine 보정, 앙상블 결합, 잔차 head.
   - 하이퍼파라미터: 트리 수, 학습률, objective 계수 등.
@@ -55,9 +68,11 @@ def diag(df, base_id, base_seeds, N=30):
 ## H6 오차 정렬
 - 확정 챔피언의 W 질량을 나눈다: G1/G2, 월, 피크(11–15시, k=3) 대 비피크, SMP 상위 분위 시간, 흐린 날(NWP cloud 상위)·강수일, 일간 ramp 큰 날. 각 성분의 W 비중을 표로 적는다(예측 파일 `predictions.parquet`과 평가기 입력으로 계산하는 방법을 사양에 적게 하거나, 시트의 월별·그룹 W를 쓴다).
 - 잠정 이상 개선 행마다 그 성분들의 변화를 본다. 개선이 W 비중이 작은 성분에서만 나오고 비중이 큰 성분 2개 이상이 악화되면 "오정렬"이다.
+- 비교 가능한 개선 행이나 성분별 값이 없으면 `판정 불가`다. 현재 기준선의 W 질량 자체는 병목 진단에 쓸 수 있다.
 
 ## H7 반복 고장
 - 같은 큐 메커니즘에서 기술 실패(rc≠0, 산출물 없음) 2회 이상, 또는 처음부터 새로 짠 **한 행짜리** 독립 모델이 base 대비 +20% 이상이면 발동한다. ARCH 계보(`power-arch-*`)는 계보 규칙으로 판단한다.
+- lease 대기·OOM·실행 미완료를 분리하고 확인된 원인만 쓴다. 인프라 실패는 과학 가설의 반증이 아니다. 완료된 유효 점수의 큰 악화와 같은 분모에 섞지 않는다.
 - historical 예(smoke 기준): Chronos-2 prior −108.6%, DHRS·top-down 배분·2×2 reconciliation 수백 %, TCN·Transformer·MCNN 등 +10~+80%.
 
 ## H8 아키텍처/계보 고착
@@ -67,11 +82,12 @@ def diag(df, base_id, base_seeds, N=30):
 
 ## ARCH 계보 규칙
 - 계보 = 같은 `lineage=<계보>`를 가진 `power-arch-<계보>-s<N>` 행들이다. 단계마다 직전 단계 코드를 이어 받아 한 가지를 바꾼다.
-- **활성**: 종료·승격 조건에 해당하지 않고 단계 수 < 6. 활성 계보마다 실행당 ARCH-STEP 1건.
-- **종료**: 연속 단계에서 성능 개선도 없고 핵심 가설 검정에서도 새 정보가 없을 때. 최대 6단계.
+- **활성**: 종료·승격 조건에 해당하지 않고 단계 수 < 6. 대기·실행 중 단계도 포함한다. 완료 결과가 있고 대기·실행 중 단계가 없는 계보만 다음 ARCH-STEP 후보를 만든다(`decision-protocol.md`).
+- **종료**: 연속 단계에서 성능 개선도 없고 핵심 가설 검정에서도 새 정보가 없음을 확인했을 때. 진단 누락은 정보가 없다는 증거가 아니다. 최대 6단계는 그대로 지킨다.
 - **승격 대기**: 확정 챔피언 대비 평균 −1.5% 이상 + 3 seed 모두 낮음 → REPLICATE(base = 확정 챔피언).
 - **챔피언**: REPLICATE가 확정되면 그 계보 run이 새 확정 챔피언이고, 이후 INCREMENT의 [기준 레시피]도 그 계보 코드가 된다.
 - 단독 판정만 한다. 챔피언 계열의 예측·잔차를 입력으로 쓰거나 블렌딩한 run은 계보 결과로 세지 않는다.
+- 직전 단계와 계보 최고, 현재 계약 기준을 따로 비교한다. 큰 악화 후 회복은 계보 내 회복으로 기록한다. 다음 단계는 `[가설 판정]`의 관측과 미해결 질문으로 고른다.
 
 ## 출력 예시 (형식만, 수치는 매 실행 시트에서)
 | 신호 | 수치 | 판정 | 큐 조치 |
