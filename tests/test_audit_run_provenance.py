@@ -1,6 +1,8 @@
 """Small regression checks for the read-only provenance audit."""
 
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -88,6 +90,19 @@ class AuditTests(unittest.TestCase):
             self.assertIsNone(pair["prediction_bytes_equal"])
             self.assertNotIn("warning", pair)
 
+
+    def test_missing_run_artifacts_fail_cli_without_evaluating(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            result = subprocess.run(
+                [sys.executable, str(Path(__file__).resolve().parents[1] / "scripts" / "audit_run_provenance.py"), temp, "P2235"],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(result.returncode, 2)
+            report = json.loads(result.stdout)
+            self.assertEqual(report["artifact_status"], "incomplete")
+            self.assertIn("predictions.parquet", report["missing_artifacts"]["P2235"])
+            self.assertEqual(report["missing_scores"], ["P2235"])
 
     def test_parquet_value_comparison_requires_unique_site_time_keys(self):
         try:
