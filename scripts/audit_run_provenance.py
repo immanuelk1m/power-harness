@@ -80,9 +80,11 @@ def compare_values(left, right):
         a, b = pd.read_parquet(left), pd.read_parquet(right)
         keys = [key for key in ("site_id", "ts") if key in a.columns and key in b.columns]
         duplicates = [int(frame.duplicated(keys).sum()) for frame in (a, b)] if len(keys) == 2 else None
-        result = {"rows": [len(a), len(b)], "key_columns": keys, "duplicate_keys": duplicates}
-        if len(keys) != 2 or any(duplicates):
-            reason = "Missing site_id/ts keys" if len(keys) != 2 else "Duplicate site_id/ts keys"
+        null_keys = [int(frame[keys].isna().any(axis=1).sum()) for frame in (a, b)] if len(keys) == 2 else None
+        result = {"rows": [len(a), len(b)], "key_columns": keys, "duplicate_keys": duplicates, "null_keys": null_keys}
+        if len(keys) != 2 or any(duplicates) or any(null_keys):
+            reason = ("Missing site_id/ts keys" if len(keys) != 2 else
+                      "Duplicate site_id/ts keys" if any(duplicates) else "Null site_id/ts keys")
             return {**result, "equal": None, "unavailable": reason + ": cannot align prediction values reliably."}
         if set(a.columns) == set(b.columns):
             b = b[a.columns]
