@@ -13,6 +13,7 @@
 - 제외 사유를 smoke/부분 평가, 기술 실패, 계약 불일치, 중복, seed 부족, provenance 미확인, 파싱 불가로 나누어 원본 행 수와 유효 실험 묶음 수를 따로 보고한다. 미파싱 행을 전부 실패 실험으로 부르지 않는다. 특정 base 값을 하드코딩하지 않는다.
 - 기본 진단 모집단은 현재 계약의 유효한 전체 3-seed 실험이다. historical은 별도 표로만 계산한다. H5/H8의 개입 모집단에서 REPLAY·REPLICATE와 기술 재시도를 빼고 사용한 분모를 표시한다. 누락값은 0이나 미발동으로 대체하지 않고 `판정 불가`로 적는다.
 - **독립 seed 확인:** `LB|`의 `seeds=0,1,2`와 `W=x/x/x` 표기만으로 독립적인 3-seed 결과라고 판정하지 않는다. `P=`가 단일 앙상블 평가 ID라면 앙상블 1회 점수로 분리한다. 서로 다른 P ID 세 개가 있어도 실제 seed·`result.json`·예측 산출물의 연결이 미확인이라면 `provenance 미확인`으로 표시하고 H1/H2 및 유효 실험 분모에서 판정을 보류한다. W 세 값이 같다는 사실만으로 무효라고 단정하지 않는다. 같은 P 세트·계약·base·평가 범위를 다시 기록한 행은 한 번만 센다.
+- **H1 탐색 모집단:** 기준선 P 세트를 그대로 재기록한 `type=replay/repl/basereplay`, 추가 seed 검증 `type=replicate`, 평가만 수행한 `type=diagnostic`은 독립적인 후보 선택 횟수에서 제외한다. 유형이 누락된 기록은 P 세트와 목적을 확인한다. 시트 766·772행의 기준선 재기록은 H1에 넣지 않는다.
 - **잠정 통계 분리:** 로컬 산출물을 아직 확인하지 못한 `LB|`도 시트에 적힌 P ID·seed·W를 이용해 별도 `시트 잠정` H1을 계산할 수 있다. `provenance 확인됨` 집계와 표본 수·제외 사유를 나눠 보고하고, 잠정 수치를 공식 발동 판정이나 REPLICATE 완료 근거로 쓰지 않는다. 확인된 표본이 10건 미만이면 `표본 부족`, provenance가 확인되지 않아 공식 집계를 만들 수 없으면 `판정 불가`로 적는다.
 - **단일 `P=` 및 중복 기록 점검:** `P=`가 한 개여도 W 세 값이 다를 수 있다(시트 966행 P2210, 987행 P2229). 이때 세 값을 독립 seed로 확정하거나 단일 앙상블로 일괄 제외하지 않고 각 run의 seed·평가 산출물을 확인한다. 동일 실험의 `LB|`가 여러 행에 반복된 사례(1009·1021행 `TTA-20261023e`, 996·999–1001행 `P2309/P2310/P2311`)는 각 한 묶음으로 센다. 단일 ID, 동일 W, 반복 행은 서로 다른 감사 항목이다.
 - **base 표기 통일:** `base=P0477/P0478/P0479`와 `base=P0477,P0478,P0479`는 같은 seed 순서의 기준이다. P ID 목록은 구분자 차이를 정규화한 뒤 비교한다. `G50S4_base_s0/1/2` 같은 별칭은 임의로 분해하거나 P ID 목록과 합치지 않는다.
@@ -29,7 +30,10 @@ def base_key(value):
 def diag(df, base_id, base_seeds, N=30):
     # df는 위 규칙으로 같은 계약에서 정규화·중복 제거한 유효 실험 묶음이다.
     key = base_key(base_id)
-    g = df[df.base.map(lambda value: base_key(value) == key)].sort_values('ts').tail(min(N, 30)).copy()
+    g = df[
+        df.base.map(lambda value: base_key(value) == key)
+        & ~df['type'].isin(('replay', 'repl', 'basereplay', 'replicate', 'diagnostic'))
+    ].sort_values('ts').tail(min(N, 30)).copy()
     g['d'] = (g['mean'] - np.mean(base_seeds)) / np.mean(base_seeds)          # 상대 차이
     g['all_lower'] = (g[['s0','s1','s2']].values < np.array(base_seeds)).all(axis=1)
     core = g[g['d'] <= 0.20]                                                    # 큰 악화는 따로 보고; 구현 실패로 단정하지 않음
