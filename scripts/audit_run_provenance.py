@@ -78,14 +78,17 @@ def compare_values(left, right):
         import pandas as pd
 
         a, b = pd.read_parquet(left), pd.read_parquet(right)
-        if set(a.columns) == set(b.columns):
-            b = b[a.columns]
         keys = [key for key in ("site_id", "ts") if key in a.columns and key in b.columns]
         duplicates = [int(frame.duplicated(keys).sum()) for frame in (a, b)] if len(keys) == 2 else None
-        if len(keys) == 2:
-            a = a.sort_values(keys).reset_index(drop=True)
-            b = b.sort_values(keys).reset_index(drop=True)
-        return {"equal": a.equals(b), "rows": [len(a), len(b)], "key_columns": keys, "duplicate_keys": duplicates}
+        result = {"rows": [len(a), len(b)], "key_columns": keys, "duplicate_keys": duplicates}
+        if len(keys) != 2 or any(duplicates):
+            reason = "Missing site_id/ts keys" if len(keys) != 2 else "Duplicate site_id/ts keys"
+            return {**result, "equal": None, "unavailable": reason + ": cannot align prediction values reliably."}
+        if set(a.columns) == set(b.columns):
+            b = b[a.columns]
+        a = a.sort_values(keys).reset_index(drop=True)
+        b = b.sort_values(keys).reset_index(drop=True)
+        return {**result, "equal": a.equals(b)}
     except Exception as error:  # Optional parquet dependencies must not prevent the hash audit.
         return {"unavailable": str(error)}
 
