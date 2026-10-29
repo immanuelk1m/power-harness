@@ -108,6 +108,15 @@ def audit(root, run_ids, compare_parquet=False):
             if "sha256" in a["files"]["model.pt"] and "sha256" in b["files"]["model.pt"] else None,
             "W_delta": b["W"] - a["W"] if a["W"] is not None and b["W"] is not None else None,
         }
+        differences = {}
+        for filename in ("config.json", "manifest.json", "result.json"):
+            left_meta = a.get(filename + "_provenance", {})
+            right_meta = b.get(filename + "_provenance", {})
+            for key in ("source_hash", "cache_hash", "protocol_hash", "data_hash"):
+                if key in left_meta and key in right_meta and left_meta[key] != right_meta[key]:
+                    differences[filename + "." + key] = [left_meta[key], right_meta[key]]
+        if differences:
+            pair["provenance_differences"] = differences
         if compare_parquet and same_bytes is not None:
             pair["prediction_values"] = compare_values(root / left / "predictions.parquet", root / right / "predictions.parquet")
         values_equal = pair.get("prediction_values", {}).get("equal") is True
