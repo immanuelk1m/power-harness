@@ -105,8 +105,9 @@ def audit(root, run_ids, compare_parquet=False):
         }
         if compare_parquet and same_bytes is not None:
             pair["prediction_values"] = compare_values(root / left / "predictions.parquet", root / right / "predictions.parquet")
-        if same_bytes and pair["W_delta"] is not None and not isclose(pair["W_delta"], 0, rel_tol=0, abs_tol=0.01):
-            pair["warning"] = "Same prediction bytes but different W: verify labels, groups, SMP, evaluator and result paths."
+        values_equal = pair.get("prediction_values", {}).get("equal") is True
+        if (same_bytes or values_equal) and pair["W_delta"] is not None and not isclose(pair["W_delta"], 0, rel_tol=0, abs_tol=0.01):
+            pair["warning"] = "Same prediction bytes or values but different W: verify labels, groups, SMP, evaluator and result paths."
         pairs[left + "/" + right] = pair
     return {"runs": runs, "pairs": pairs, "note": "No evaluator was called; no protected score was recomputed."}
 
