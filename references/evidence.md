@@ -66,3 +66,12 @@ W 단위는 원(가격·k 가중 오차 합)이다. 아래에서 M = 10⁶원.
 | A4 사전학습·위성 파운데이션(Chronos-2/PARA-PV, Baguan-solar 재현, SunCastNet) | X0311, X0366, X0323 | smoke 악화 또는 데이터 부족 |
 | A5 생성형 기상 시나리오(CNF·Copula·GMM·diffusion) | X0368–X0374, X0383, X0384 | 기술 실패 또는 smoke 악화 |
 - 재개 조건: 학습 예산(GPU, seed당 ≥ 30분 또는 early stop)과 전체 평가창 3-seed를 갖추고, 과거 시도와 입력 표현·학습 대상·구조 중 무엇이 다른지 적으면 그 계열의 다음 단계로 낼 수 있다. 학습 규모만 다르면 새 계보가 아니다.
+
+## 후속 연구 기록 감사 (2026-10-29 확인, 판정 미완료)
+
+아래는 [발전량 연구 시트](https://docs.google.com/spreadsheets/d/1eqmgRn3qJH_44Bkv14piwzhADU2fWZL8-p-d6EzF-nw/edit)의 후속 기록을 읽고 남긴 감사 메모다. 기존 2026-10-14 historical 근거와 구분한다. 새로운 2025 보호평가 결과를 뜻하지 않으며, 다음 실행에서도 시트 원본을 다시 확인한다.
+
+- **R2 밀도비 가중 — [Issue #2](https://github.com/immanuelk1m/power-harness/issues/2):** 시트 1043행 `power-arch-s4-driftweight-20261023c`의 cutoff 이전 seed 0 검증에서 지수 0.0(항등)의 MAE가 0.033940으로, 지수 0.5(0.034066)와 1.0(0.034128)보다 낮았다. 선택 결과는 해당 밀도비 추정기·참조 기간·후보 지수의 내부 검증에 한정한다. seed 1/2와 2025 전체 3-seed 보호평가가 없으므로 공변량 시프트나 재가중 계열 전체를 닫힌 축으로 세지 않는다. 동일 설정의 중복 실험도 새로 제안하지 않는다.
+- **s4 기준선 산출물 — [Issue #1](https://github.com/immanuelk1m/power-harness/issues/1):** 시트 1042행에는 P2235/P2236의 `predictions.parquet`와 `model.pt`가 바이트 단위로 동일하다는 기록이 있다. 시트 993–994행의 W는 각각 824,862,343.60원과 704,453,530.23원이다. 993–995행의 `grp=0.00/0.00` 표기도 전체 W와의 관계를 확인해야 한다. 실제 파일 해시·예측값·평가 입력·`result.json.group_metrics`는 로컬에서 검증되지 않았다. 독립 seed 재현 여부와 그룹별 W를 확정하지 않고, 원본 점수 수정이나 보호평가 재실행 없이 읽기 전용 provenance 감사부터 진행한다.
+
+두 감사 모두 기존 `발전량 큐`의 REPLICATE를 중복 등록할 이유가 되지 않는다. 후속 결과를 해석할 때는 감사 완료 여부를 함께 기록한다.
