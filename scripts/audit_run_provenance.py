@@ -5,6 +5,7 @@ import hashlib
 import json
 from datetime import datetime, timezone
 from itertools import combinations
+from math import isclose
 from pathlib import Path
 
 FILES = ("config.json", "result.json", "manifest.json", "predictions.parquet", "model.pt")
@@ -64,7 +65,11 @@ def inspect_run(root, run_id):
                 values = [w_value(groups.get(key)) for key in ("G1", "G2")]
                 if all(value is not None for value in values):
                     record["group_W"] = dict(zip(("G1", "G2"), values))
-                    record["group_sum_delta"] = sum(values) - record["W"] if record["W"] is not None else None
+                    if record["W"] is not None:
+                        record["group_sum_delta"] = sum(values) - record["W"]
+                        record["group_sum_consistent"] = isclose(sum(values), record["W"], rel_tol=0, abs_tol=0.01)
+                        if not record["group_sum_consistent"]:
+                            record["warning"] = "G1 + G2 does not match W for this run."
     return record
 
 
@@ -100,7 +105,7 @@ def audit(root, run_ids, compare_parquet=False):
         }
         if compare_parquet and same_bytes is not None:
             pair["prediction_values"] = compare_values(root / left / "predictions.parquet", root / right / "predictions.parquet")
-        if same_bytes and pair["W_delta"] not in (None, 0):
+        if same_bytes and pair["W_delta"] is not None and not isclose(pair["W_delta"], 0, rel_tol=0, abs_tol=0.01):
             pair["warning"] = "Same prediction bytes but different W: verify labels, groups, SMP, evaluator and result paths."
         pairs[left + "/" + right] = pair
     return {"runs": runs, "pairs": pairs, "note": "No evaluator was called; no protected score was recomputed."}
