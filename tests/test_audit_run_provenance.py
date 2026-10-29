@@ -8,7 +8,7 @@ from unittest.mock import patch
 from sys import path
 
 path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from audit_run_provenance import audit  # noqa: E402
+from audit_run_provenance import audit, compare_values  # noqa: E402
 
 
 class AuditTests(unittest.TestCase):
@@ -68,6 +68,26 @@ class AuditTests(unittest.TestCase):
             self.assertTrue(pair["prediction_values"]["equal"])
             self.assertEqual(pair["W_delta"], 20)
             self.assertIn("warning", pair)
+
+
+    def test_parquet_value_comparison_requires_unique_site_time_keys(self):
+        try:
+            import pandas as pd
+        except ImportError:
+            self.skipTest("Optional pandas dependency is unavailable")
+
+        unkeyed = pd.DataFrame({"forecast": [1.0]})
+        duplicate = pd.DataFrame({"site_id": [1, 1], "ts": [1, 1], "forecast": [1.0, 2.0]})
+        keyed = pd.DataFrame({"site_id": [1, 2], "ts": [1, 1], "forecast": [1.0, 2.0]})
+        reordered = keyed.iloc[::-1][["forecast", "ts", "site_id"]]
+
+        for left, right, expected in ((unkeyed, unkeyed, None), (duplicate, duplicate, None), (keyed, reordered, True)):
+            with self.subTest(expected=expected, columns=list(left.columns)):
+                with patch("pandas.read_parquet", side_effect=[left, right]):
+                    result = compare_values("left.parquet", "right.parquet")
+                self.assertIs(result["equal"], expected)
+                if expected is None:
+                    self.assertIn("unavailable", result)
 
 
 if __name__ == "__main__":
