@@ -70,6 +70,25 @@ class AuditTests(unittest.TestCase):
             self.assertIn("warning", pair)
 
 
+    def test_changed_artifact_provenance_is_reported_without_guessing_missing_hashes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for run_id, seed, data_hash in (("P1", 0, "dataset-a"), ("P2", 1, "dataset-b")):
+                folder = root / run_id
+                folder.mkdir()
+                (folder / "config.json").write_text(json.dumps({"seed": seed, "source_hash": "same-code"}), encoding="utf-8")
+                (folder / "manifest.json").write_text(
+                    json.dumps({"data_hash": data_hash, "protocol_hash": "same-protocol"}),
+                    encoding="utf-8",
+                )
+                (folder / "result.json").write_text(json.dumps({"metrics": {"W": 100}}), encoding="utf-8")
+
+            pair = audit(root, ["P1", "P2"])["pairs"]["P1/P2"]
+            self.assertEqual(pair["provenance_differences"], {"manifest.json.data_hash": ["dataset-a", "dataset-b"]})
+            self.assertIsNone(pair["prediction_bytes_equal"])
+            self.assertNotIn("warning", pair)
+
+
     def test_parquet_value_comparison_requires_unique_site_time_keys(self):
         try:
             import pandas as pd
