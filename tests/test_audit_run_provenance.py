@@ -78,10 +78,11 @@ class AuditTests(unittest.TestCase):
 
         unkeyed = pd.DataFrame({"forecast": [1.0]})
         duplicate = pd.DataFrame({"site_id": [1, 1], "ts": [1, 1], "forecast": [1.0, 2.0]})
+        null_key = pd.DataFrame({"site_id": [None], "ts": [1], "forecast": [1.0]})
         keyed = pd.DataFrame({"site_id": [1, 2], "ts": [1, 1], "forecast": [1.0, 2.0]})
         reordered = keyed.iloc[::-1][["forecast", "ts", "site_id"]]
 
-        for left, right, expected in ((unkeyed, unkeyed, None), (duplicate, duplicate, None), (keyed, reordered, True)):
+        for left, right, expected in ((unkeyed, unkeyed, None), (duplicate, duplicate, None), (null_key, null_key, None), (keyed, reordered, True)):
             with self.subTest(expected=expected, columns=list(left.columns)):
                 with patch("pandas.read_parquet", side_effect=[left, right]):
                     result = compare_values("left.parquet", "right.parquet")
