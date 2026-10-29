@@ -1,0 +1,121 @@
+"""Read-only artifact and score consistency audit for local power_forecast runs."""
+
+import argparse
+import hashlib
+import json
+from datetime import datetime, timezone
+from itertools import combinations
+from pathlib import Path
+
+FILES = ("config.json", "result.json", "manifest.json", "predictions.parquet", "model.pt")
+
+
+def fingerprint(path):
+    if not path.is_file():
+        return {"missing": True}
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    stat = path.stat()
+    return {
+        "sha256": digest.hexdigest(),
+        "bytes": stat.st_size,
+        "mtime_utc": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
+    }
+
+
+def w_value(value):
+    if isinstance(value, dict):
+        value = value.get("W")
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def inspect_run(root, run_id):
+    folder = root / run_id
+    files = {name: fingerprint(folder / name) for name in FILES}
+    record = {"files": files, "seed": None, "parent": None, "W": None, "group_W": None}
+    for name in ("config.json", "manifest.json", "result.json"):
+        if files[name].get("missing"):
+            continue
+        try:
+            data = json.loads((folder / name).read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            record[name + "_error"] = str(error)
+            continue
+        if not isinstance(data, dict):
+            record[name + "_error"] = "JSON root must be an object"
+            continue
+        record[name + "_provenance"] = {
+            key: data[key]
+            for key in ("seed", "parent", "source_hash", "cache_hash", "protocol_hash", "data_hash")
+            if key in data and isinstance(data[key], (str, int, float))
+        }
+        if name == "config.json":
+            record["seed"] = data.get("seed")
+            record["parent"] = data.get("parent")
+        if name == "result.json":
+            metrics = data.get("metrics", {})
+            if not isinstance(metrics, dict):
+                metrics = {}
+            record["W"] = w_value(metrics.get("W"))
+            groups = data.get("group_metrics", metrics.get("group_metrics", {}))
+            if isinstance(groups, dict):
+                values = [w_value(groups.get(key)) for key in ("G1", "G2")]
+                if all(value is not None for value in values):
+                    record["group_W"] = dict(zip(("G1", "G2"), values))
+                    record["group_sum_delta"] = sum(values) - record["W"] if record["W"] is not None else None
+    return record
+
+
+def compare_values(left, right):
+    try:
+        import pandas as pd
+
+        a, b = pd.read_parquet(left), pd.read_parquet(right)
+        if set(a.columns) == set(b.columns):
+            b = b[a.columns]
+        keys = [key for key in ("site_id", "ts") if key in a.columns and key in b.columns]
+        duplicates = [int(frame.duplicated(keys).sum()) for frame in (a, b)] if len(keys) == 2 else None
+        if len(keys) == 2:
+            a = a.sort_values(keys).reset_index(drop=True)
+            b = b.sort_values(keys).reset_index(drop=True)
+        return {"equal": a.equals(b), "rows": [len(a), len(b)], "key_columns": keys, "duplicate_keys": duplicates}
+    except Exception as error:  # Optional parquet dependencies must not prevent the hash audit.
+        return {"unavailable": str(error)}
+
+
+def audit(root, run_ids, compare_parquet=False):
+    runs = {run_id: inspect_run(root, run_id) for run_id in run_ids}
+    pairs = {}
+    for left, right in combinations(run_ids, 2):
+        a, b = runs[left], runs[right]
+        pred_a, pred_b = a["files"]["predictions.parquet"], b["files"]["predictions.parquet"]
+        same_bytes = pred_a.get("sha256") == pred_b.get("sha256") if "sha256" in pred_a and "sha256" in pred_b else None
+        pair = {
+            "prediction_bytes_equal": same_bytes,
+            "model_bytes_equal": a["files"]["model.pt"].get("sha256") == b["files"]["model.pt"].get("sha256")
+            if "sha256" in a["files"]["model.pt"] and "sha256" in b["files"]["model.pt"] else None,
+            "W_delta": b["W"] - a["W"] if a["W"] is not None and b["W"] is not None else None,
+        }
+        if compare_parquet and same_bytes is not None:
+            pair["prediction_values"] = compare_values(root / left / "predictions.parquet", root / right / "predictions.parquet")
+        if same_bytes and pair["W_delta"] not in (None, 0):
+            pair["warning"] = "Same prediction bytes but different W: verify labels, groups, SMP, evaluator and result paths."
+        pairs[left + "/" + right] = pair
+    return {"runs": runs, "pairs": pairs, "note": "No evaluator was called; no protected score was recomputed."}
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("runs_dir", type=Path)
+    parser.add_argument("run_ids", nargs="+", help="Existing run directory names")
+    parser.add_argument("--compare-values", action="store_true", help="Compare parquet values when bytes differ (requires pandas parquet engine)")
+    args = parser.parse_args()
+    if len(args.run_ids) != len(set(args.run_ids)) or any(Path(run_id).name != run_id or run_id in (".", "..") for run_id in args.run_ids):
+        parser.error("Run IDs must be distinct directory names")
+    print(json.dumps(audit(args.runs_dir, args.run_ids, args.compare_values), ensure_ascii=False, indent=2))
+
+
+if __name__ == "__main__":
+    main()
