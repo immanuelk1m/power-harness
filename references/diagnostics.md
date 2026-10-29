@@ -10,16 +10,25 @@
 - 옛 형식: seed마다 별도 행이다. `Current Node`의 P id, `방법론` JSON의 `seed`·`variant`·`parent`, `결과`의 `W=<값>`을 뽑고, 같은 variant(seed만 다름)·같은 parent 묶음 3개를 한 실험으로 합친다. `검증 설계`가 2025-01-01 01:00~2025-06-01 00:00 3,624h가 아니면 제외한다(smoke·fold 결과).
 - LB/REP의 필드 경계는 `다음 key=`로 구분한다. `type=그룹·정산 결정`처럼 값 안에 공백이 있으므로 공백만으로 split하지 않는다. 원/M 단위를 통일하고 seed 순서를 명시적으로 맞춘다.
 - 같은 큐·레시피·계약·평가 범위·base의 seed 0/1/2만 한 묶음으로 만든다. seed별 parent ID가 다르면 같은 기준 레시피의 대응 seed임을 확인한 뒤 묶는다. 중복 리뷰·재기록을 제거하고 완료 시각으로 정렬한다.
-- 제외 사유를 smoke/부분 평가, 기술 실패, 계약 불일치, 중복, seed 부족, 파싱 불가로 나누어 원본 행 수와 유효 실험 묶음 수를 따로 보고한다. 미파싱 행을 전부 실패 실험으로 부르지 않는다. 특정 base 값을 하드코딩하지 않는다.
+- 제외 사유를 smoke/부분 평가, 기술 실패, 계약 불일치, 중복, seed 부족, provenance 미확인, 파싱 불가로 나누어 원본 행 수와 유효 실험 묶음 수를 따로 보고한다. 미파싱 행을 전부 실패 실험으로 부르지 않는다. 특정 base 값을 하드코딩하지 않는다.
 - 기본 진단 모집단은 현재 계약의 유효한 전체 3-seed 실험이다. historical은 별도 표로만 계산한다. H5/H8의 개입 모집단에서 REPLAY·REPLICATE와 기술 재시도를 빼고 사용한 분모를 표시한다. 누락값은 0이나 미발동으로 대체하지 않고 `판정 불가`로 적는다.
 - **독립 seed 확인:** `LB|`의 `seeds=0,1,2`와 `W=x/x/x` 표기만으로 독립적인 3-seed 결과라고 판정하지 않는다. `P=`가 단일 앙상블 평가 ID라면 앙상블 1회 점수로 분리한다. 서로 다른 P ID 세 개가 있어도 실제 seed·`result.json`·예측 산출물의 연결이 미확인이라면 `provenance 미확인`으로 표시하고 H1/H2 및 유효 실험 분모에서 판정을 보류한다. W 세 값이 같다는 사실만으로 무효라고 단정하지 않는다. 같은 P 세트·계약·base·평가 범위를 다시 기록한 행은 한 번만 센다.
+- **잠정 통계 분리:** 로컬 산출물을 아직 확인하지 못한 `LB|`도 시트에 적힌 P ID·seed·W를 이용해 별도 `시트 잠정` H1을 계산할 수 있다. `provenance 확인됨` 집계와 표본 수·제외 사유를 나눠 보고하고, 잠정 수치를 공식 발동 판정이나 REPLICATE 완료 근거로 쓰지 않는다. 확인된 표본이 10건 미만이면 `표본 부족`, provenance가 확인되지 않아 공식 집계를 만들 수 없으면 `판정 불가`로 적는다.
+- **base 표기 통일:** `base=P0477/P0478/P0479`와 `base=P0477,P0478,P0479`는 같은 seed 순서의 기준이다. P ID 목록은 구분자 차이를 정규화한 뒤 비교한다. `G50S4_base_s0/1/2` 같은 별칭은 임의로 분해하거나 P ID 목록과 합치지 않는다.
 
 ```python
 # df: 컬럼 exp, base, s0, s1, s2, mean, g1, g2, type, queue_id, ts  (W 단위 통일)
+import re
 import numpy as np, pandas as pd
+
+def base_key(value):
+    ids = re.findall(r'P\d+', str(value))
+    return tuple(ids) if ids else str(value).strip()
+
 def diag(df, base_id, base_seeds, N=30):
     # df는 위 규칙으로 같은 계약에서 정규화·중복 제거한 유효 실험 묶음이다.
-    g = df[df.base == base_id].sort_values('ts').tail(min(N, 30)).copy()
+    key = base_key(base_id)
+    g = df[df.base.map(lambda value: base_key(value) == key)].sort_values('ts').tail(min(N, 30)).copy()
     g['d'] = (g['mean'] - np.mean(base_seeds)) / np.mean(base_seeds)          # 상대 차이
     g['all_lower'] = (g[['s0','s1','s2']].values < np.array(base_seeds)).all(axis=1)
     core = g[g['d'] <= 0.20]                                                    # 큰 악화는 따로 보고; 구현 실패로 단정하지 않음
