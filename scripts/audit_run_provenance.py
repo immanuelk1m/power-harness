@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import sys
 from datetime import datetime, timezone
 from itertools import combinations
 from math import isclose
@@ -123,7 +124,27 @@ def audit(root, run_ids, compare_parquet=False):
         if (same_bytes or values_equal) and pair["W_delta"] is not None and not isclose(pair["W_delta"], 0, rel_tol=0, abs_tol=0.01):
             pair["warning"] = "Same prediction bytes or values but different W: verify labels, groups, SMP, evaluator and result paths."
         pairs[left + "/" + right] = pair
-    return {"runs": runs, "pairs": pairs, "note": "No evaluator was called; no protected score was recomputed."}
+    missing = {
+        run_id: [name for name, info in record["files"].items() if info.get("missing")]
+        for run_id, record in runs.items()
+    }
+    missing = {run_id: names for run_id, names in missing.items() if names}
+    missing_scores = [run_id for run_id, record in runs.items() if record["W"] is None]
+    unreadable = {
+        run_id: [key for key in record if key.endswith("_error")]
+        for run_id, record in runs.items()
+    }
+    unreadable = {run_id: keys for run_id, keys in unreadable.items() if keys}
+    incomplete = bool(missing or missing_scores or unreadable)
+    return {
+        "runs": runs,
+        "pairs": pairs,
+        "artifact_status": "incomplete" if incomplete else "present",
+        "missing_artifacts": missing,
+        "missing_scores": missing_scores,
+        "unreadable_json": unreadable,
+        "note": "No evaluator was called; no protected score was recomputed. Artifact presence does not prove evaluation-input identity.",
+    }
 
 
 def main():
@@ -134,7 +155,10 @@ def main():
     args = parser.parse_args()
     if len(args.run_ids) != len(set(args.run_ids)) or any(Path(run_id).name != run_id or run_id in (".", "..") for run_id in args.run_ids):
         parser.error("Run IDs must be distinct directory names")
-    print(json.dumps(audit(args.runs_dir, args.run_ids, args.compare_values), ensure_ascii=False, indent=2))
+    report = audit(args.runs_dir, args.run_ids, args.compare_values)
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    if report["artifact_status"] == "incomplete":
+        sys.exit(2)
 
 
 if __name__ == "__main__":
