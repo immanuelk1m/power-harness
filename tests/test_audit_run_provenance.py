@@ -28,7 +28,27 @@ class AuditTests(unittest.TestCase):
             self.assertIn("warning", pair)
             self.assertEqual(report["runs"]["P1"]["group_sum_delta"], 0)
             self.assertEqual(report["runs"]["P2"]["group_sum_delta"], -20)
+            self.assertTrue(report["runs"]["P1"]["group_sum_consistent"])
+            self.assertFalse(report["runs"]["P2"]["group_sum_consistent"])
+            self.assertIn("warning", report["runs"]["P2"])
             self.assertTrue(report["runs"]["P1"]["files"]["manifest.json"]["missing"])
+
+
+    def test_cent_level_rounding_is_not_flagged(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for run_id, score in (("P1", 100), ("P2", 100.005)):
+                folder = root / run_id
+                folder.mkdir()
+                (folder / "predictions.parquet").write_bytes(b"same predictions")
+                (folder / "result.json").write_text(
+                    json.dumps({"metrics": {"W": score}, "group_metrics": {"G1": {"W": 40}, "G2": {"W": 60}}}),
+                    encoding="utf-8",
+                )
+            report = audit(root, ["P1", "P2"])
+            self.assertTrue(report["runs"]["P2"]["group_sum_consistent"])
+            self.assertNotIn("warning", report["runs"]["P2"])
+            self.assertNotIn("warning", report["pairs"]["P1/P2"])
 
 
 if __name__ == "__main__":
