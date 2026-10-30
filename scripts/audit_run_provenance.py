@@ -128,8 +128,15 @@ def compare_values(left, right):
         return {"unavailable": str(error)}
 
 
-def audit(root, run_ids, compare_parquet=False):
+def audit(root, run_ids, compare_parquet=False, distinct_seeds=False):
     runs = {run_id: inspect_run(root, run_id) for run_id in run_ids}
+    missing_seeds = [run_id for run_id, run in runs.items() if run["seed"] is None] if distinct_seeds else []
+    seeds = {}
+    if distinct_seeds:
+        for run_id, run in runs.items():
+            if run["seed"] is not None:
+                seeds.setdefault(str(run["seed"]), []).append(run_id)
+    duplicate_seeds = {seed: ids for seed, ids in seeds.items() if len(ids) > 1}
     pairs = {}
     for left, right in combinations(run_ids, 2):
         a, b = runs[left], runs[right]
@@ -181,7 +188,7 @@ def audit(root, run_ids, compare_parquet=False):
         for run_id, record in runs.items()
     }
     unreadable = {run_id: keys for run_id, keys in unreadable.items() if keys}
-    incomplete = bool(missing or unreadable_artifacts or empty_artifacts or missing_scores or invalid_group_scores or unreadable)
+    incomplete = bool(missing or unreadable_artifacts or empty_artifacts or missing_scores or invalid_group_scores or unreadable or missing_seeds)
     unverified_pairs = [
         name for name, pair in pairs.items()
         if compare_parquet and pair["prediction_bytes_equal"] is not True
@@ -192,6 +199,7 @@ def audit(root, run_ids, compare_parquet=False):
         if "warning" in run or "seed_conflict" in run or "parent_conflict" in run or "provenance_conflicts" in run
     ]
     flagged += [name for name, pair in pairs.items() if "warning" in pair]
+    flagged += ["duplicate_seed:" + seed for seed in duplicate_seeds]
     return {
         "runs": runs,
         "pairs": pairs,
@@ -204,6 +212,8 @@ def audit(root, run_ids, compare_parquet=False):
         "unreadable_artifacts": unreadable_artifacts,
         "empty_artifacts": empty_artifacts,
         "missing_scores": missing_scores,
+        "missing_seeds": missing_seeds,
+        "duplicate_seeds": duplicate_seeds,
         "invalid_group_scores": invalid_group_scores,
         "unreadable_json": unreadable,
         "note": "No evaluator was called; no protected score was recomputed. Artifact presence does not prove evaluation-input identity.",
@@ -215,10 +225,11 @@ def main():
     parser.add_argument("runs_dir", type=Path)
     parser.add_argument("run_ids", nargs="+", help="Existing run directory names")
     parser.add_argument("--compare-values", action="store_true", help="Compare parquet values when bytes differ (requires pandas parquet engine)")
+    parser.add_argument("--distinct-seeds", action="store_true", help="Require present, distinct config seeds across the audited runs")
     args = parser.parse_args()
     if len(args.run_ids) != len(set(args.run_ids)) or any(Path(run_id).name != run_id or run_id in (".", "..") for run_id in args.run_ids):
         parser.error("Run IDs must be distinct directory names")
-    report = audit(args.runs_dir, args.run_ids, args.compare_values)
+    report = audit(args.runs_dir, args.run_ids, args.compare_values, args.distinct_seeds)
     print(json.dumps(report, ensure_ascii=False, indent=2))
     if report["artifact_status"] == "incomplete" or report["comparison_status"] == "incomplete":
         sys.exit(2)
