@@ -156,6 +156,32 @@ class AuditTests(unittest.TestCase):
                     self.assertIsNone(report["runs"]["P1"]["W"])
 
 
+    def test_malformed_group_scores_require_incomplete_audit(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp) / "P1"
+            folder.mkdir()
+            (folder / "config.json").write_text("{}", encoding="utf-8")
+            (folder / "manifest.json").write_text("{}", encoding="utf-8")
+            (folder / "model.pt").write_bytes(b"model")
+            (folder / "predictions.parquet").write_bytes(b"predictions")
+
+            for groups in ({"G1": {"W": 40}, "G2": {"W": float("nan")}}, {"G1": {"W": 40}}):
+                with self.subTest(groups=groups):
+                    (folder / "result.json").write_text(
+                        json.dumps({"metrics": {"W": 100, "group_metrics": groups}}), encoding="utf-8",
+                    )
+                    result = subprocess.run(
+                        [sys.executable, str(Path(__file__).resolve().parents[1] / "scripts" / "audit_run_provenance.py"),
+                         temp, "P1"],
+                        capture_output=True, text=True, check=False,
+                    )
+                    report = json.loads(result.stdout)
+                    self.assertEqual(result.returncode, 2)
+                    self.assertEqual(report["artifact_status"], "incomplete")
+                    self.assertEqual(report["missing_scores"], [])
+                    self.assertEqual(report["invalid_group_scores"], {"P1": ["G2"]})
+
+
     def test_complete_artifacts_with_conflicting_scores_require_review(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
