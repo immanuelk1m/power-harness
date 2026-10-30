@@ -57,6 +57,39 @@ class AuditTests(unittest.TestCase):
             self.assertEqual(report["consistency_status"], "review_required")
             self.assertEqual(report["consistency_warnings"], ["P1"])
 
+    def test_conflicting_parent_metadata_requires_review(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp) / "P1"
+            folder.mkdir()
+            for name, parent in (
+                ("config.json", "P-base"),
+                ("manifest.json", "P-other"),
+                ("result.json", "P-base"),
+            ):
+                data = {"seed": 0, "parent": parent}
+                if name == "result.json":
+                    data["metrics"] = {"W": 100}
+                (folder / name).write_text(json.dumps(data), encoding="utf-8")
+            (folder / "predictions.parquet").write_bytes(b"predictions")
+            (folder / "model.pt").write_bytes(b"model")
+
+            report = audit(Path(temp), ["P1"])
+            self.assertEqual(report["runs"]["P1"]["parent_conflict"], {
+                "config.json": "P-base",
+                "manifest.json": "P-other",
+                "result.json": "P-base",
+            })
+            self.assertEqual(report["artifact_status"], "present")
+            self.assertEqual(report["consistency_status"], "review_required")
+            self.assertEqual(report["consistency_warnings"], ["P1"])
+
+            (folder / "manifest.json").write_text(
+                json.dumps({"seed": 0, "parent": "P-base"}), encoding="utf-8",
+            )
+            consistent = audit(Path(temp), ["P1"])
+            self.assertNotIn("parent_conflict", consistent["runs"]["P1"])
+            self.assertEqual(consistent["consistency_status"], "no_flags")
+
     def test_cent_level_rounding_is_not_flagged(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
