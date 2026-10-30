@@ -136,10 +136,17 @@ def audit(root, run_ids, compare_parquet=False):
     }
     unreadable = {run_id: keys for run_id, keys in unreadable.items() if keys}
     incomplete = bool(missing or missing_scores or unreadable)
+    unverified_pairs = [
+        name for name, pair in pairs.items()
+        if compare_parquet and pair["prediction_bytes_equal"] is not True
+        and not isinstance(pair.get("prediction_values", {}).get("equal"), bool)
+    ]
     return {
         "runs": runs,
         "pairs": pairs,
         "artifact_status": "incomplete" if incomplete else "present",
+        "comparison_status": "incomplete" if unverified_pairs else "complete" if compare_parquet else "not_requested",
+        "unverified_value_pairs": unverified_pairs,
         "missing_artifacts": missing,
         "missing_scores": missing_scores,
         "unreadable_json": unreadable,
@@ -157,7 +164,7 @@ def main():
         parser.error("Run IDs must be distinct directory names")
     report = audit(args.runs_dir, args.run_ids, args.compare_values)
     print(json.dumps(report, ensure_ascii=False, indent=2))
-    if report["artifact_status"] == "incomplete":
+    if report["artifact_status"] == "incomplete" or report["comparison_status"] == "incomplete":
         sys.exit(2)
 
 
