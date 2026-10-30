@@ -216,6 +216,27 @@ class AuditTests(unittest.TestCase):
             self.assertEqual(report["missing_scores"], [])
 
 
+    def test_empty_prediction_artifact_is_incomplete(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp) / "P1"
+            folder.mkdir()
+            (folder / "config.json").write_text("{}", encoding="utf-8")
+            (folder / "manifest.json").write_text("{}", encoding="utf-8")
+            (folder / "result.json").write_text('{"metrics": {"W": 100}}', encoding="utf-8")
+            (folder / "model.pt").write_bytes(b"model")
+            (folder / "predictions.parquet").touch()
+
+            result = subprocess.run(
+                [sys.executable, str(Path(__file__).resolve().parents[1] / "scripts" / "audit_run_provenance.py"),
+                 temp, "P1"],
+                capture_output=True, text=True, check=False,
+            )
+            report = json.loads(result.stdout)
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(report["artifact_status"], "incomplete")
+            self.assertEqual(report["empty_artifacts"], {"P1": ["predictions.parquet"]})
+            self.assertEqual(report["missing_scores"], [])
+
     def test_nonfinite_w_requires_incomplete_audit(self):
         with tempfile.TemporaryDirectory() as temp:
             folder = Path(temp) / "P1"
