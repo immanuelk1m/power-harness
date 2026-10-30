@@ -65,14 +65,20 @@ def inspect_run(root, run_id):
             if not isinstance(metrics, dict):
                 metrics = {}
             record["W"] = w_value(metrics.get("W"))
-            groups = data.get("group_metrics", metrics.get("group_metrics", {}))
-            if isinstance(groups, dict):
-                values = [w_value(groups.get(key)) for key in ("G1", "G2")]
-                if all(value is not None for value in values):
-                    record["group_W"] = dict(zip(("G1", "G2"), values))
+            if "group_metrics" in data or "group_metrics" in metrics:
+                groups = data.get("group_metrics", metrics.get("group_metrics"))
+                values = {
+                    key: w_value(groups.get(key)) if isinstance(groups, dict) else None
+                    for key in ("G1", "G2")
+                }
+                invalid = [key for key, value in values.items() if value is None]
+                if invalid:
+                    record["invalid_group_scores"] = invalid
+                else:
+                    record["group_W"] = values
                     if record["W"] is not None:
-                        record["group_sum_delta"] = sum(values) - record["W"]
-                        record["group_sum_consistent"] = isclose(sum(values), record["W"], rel_tol=0, abs_tol=0.01)
+                        record["group_sum_delta"] = sum(values.values()) - record["W"]
+                        record["group_sum_consistent"] = isclose(sum(values.values()), record["W"], rel_tol=0, abs_tol=0.01)
                         if not record["group_sum_consistent"]:
                             record["warning"] = "G1 + G2 does not match W for this run."
     return record
@@ -139,12 +145,16 @@ def audit(root, run_ids, compare_parquet=False):
     }
     unreadable_artifacts = {run_id: names for run_id, names in unreadable_artifacts.items() if names}
     missing_scores = [run_id for run_id, record in runs.items() if record["W"] is None]
+    invalid_group_scores = {
+        run_id: record["invalid_group_scores"]
+        for run_id, record in runs.items() if "invalid_group_scores" in record
+    }
     unreadable = {
         run_id: [key for key in record if key.endswith("_error")]
         for run_id, record in runs.items()
     }
     unreadable = {run_id: keys for run_id, keys in unreadable.items() if keys}
-    incomplete = bool(missing or unreadable_artifacts or missing_scores or unreadable)
+    incomplete = bool(missing or unreadable_artifacts or missing_scores or invalid_group_scores or unreadable)
     unverified_pairs = [
         name for name, pair in pairs.items()
         if compare_parquet and pair["prediction_bytes_equal"] is not True
@@ -163,6 +173,7 @@ def audit(root, run_ids, compare_parquet=False):
         "missing_artifacts": missing,
         "unreadable_artifacts": unreadable_artifacts,
         "missing_scores": missing_scores,
+        "invalid_group_scores": invalid_group_scores,
         "unreadable_json": unreadable,
         "note": "No evaluator was called; no protected score was recomputed. Artifact presence does not prove evaluation-input identity.",
     }
