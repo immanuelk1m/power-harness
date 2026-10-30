@@ -39,6 +39,24 @@ class AuditTests(unittest.TestCase):
             self.assertTrue(report["runs"]["P1"]["files"]["manifest.json"]["missing"])
 
 
+    def test_conflicting_seed_metadata_requires_review(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp) / "P1"
+            folder.mkdir()
+            for name, seed in (("config.json", 0), ("manifest.json", 1), ("result.json", 0)):
+                data = {"seed": seed, "metrics": {"W": 100}} if name == "result.json" else {"seed": seed}
+                (folder / name).write_text(json.dumps(data), encoding="utf-8")
+            (folder / "predictions.parquet").write_bytes(b"predictions")
+            (folder / "model.pt").write_bytes(b"model")
+
+            report = audit(Path(temp), ["P1"])
+            self.assertEqual(report["runs"]["P1"]["seed_conflict"], {
+                "config.json": 0, "manifest.json": 1, "result.json": 0,
+            })
+            self.assertEqual(report["artifact_status"], "present")
+            self.assertEqual(report["consistency_status"], "review_required")
+            self.assertEqual(report["consistency_warnings"], ["P1"])
+
     def test_cent_level_rounding_is_not_flagged(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
