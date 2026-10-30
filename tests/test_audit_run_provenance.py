@@ -104,6 +104,30 @@ class AuditTests(unittest.TestCase):
             self.assertIn("predictions.parquet", report["missing_artifacts"]["P2235"])
             self.assertEqual(report["missing_scores"], ["P2235"])
 
+    def test_requested_value_comparison_failure_exits_nonzero(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for run_id, prediction in (("P1", b"invalid A"), ("P2", b"invalid B")):
+                folder = root / run_id
+                folder.mkdir()
+                (folder / "config.json").write_text("{}", encoding="utf-8")
+                (folder / "manifest.json").write_text("{}", encoding="utf-8")
+                (folder / "result.json").write_text('{"metrics": {"W": 100}}', encoding="utf-8")
+                (folder / "model.pt").write_bytes(b"model")
+                (folder / "predictions.parquet").write_bytes(prediction)
+
+            result = subprocess.run(
+                [sys.executable, str(Path(__file__).resolve().parents[1] / "scripts" / "audit_run_provenance.py"),
+                 temp, "P1", "P2", "--compare-values"],
+                capture_output=True, text=True, check=False,
+            )
+            report = json.loads(result.stdout)
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(report["artifact_status"], "present")
+            self.assertEqual(report["comparison_status"], "incomplete")
+            self.assertEqual(report["unverified_value_pairs"], ["P1/P2"])
+            self.assertIn("unavailable", report["pairs"]["P1/P2"]["prediction_values"])
+
     def test_parquet_value_comparison_requires_unique_site_time_keys(self):
         try:
             import pandas as pd
