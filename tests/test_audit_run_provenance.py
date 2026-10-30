@@ -10,7 +10,7 @@ from unittest.mock import patch
 from sys import path
 
 path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from audit_run_provenance import audit, compare_values  # noqa: E402
+from audit_run_provenance import audit, compare_values, fingerprint  # noqa: E402
 
 
 class AuditTests(unittest.TestCase):
@@ -106,6 +106,30 @@ class AuditTests(unittest.TestCase):
             self.assertEqual(report["artifact_status"], "incomplete")
             self.assertIn("predictions.parquet", report["missing_artifacts"]["P2235"])
             self.assertEqual(report["missing_scores"], ["P2235"])
+
+    def test_unreadable_artifact_is_incomplete(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            folder = root / "P1"
+            folder.mkdir()
+            for name in ("config.json", "manifest.json"):
+                (folder / name).write_text("{}", encoding="utf-8")
+            (folder / "result.json").write_text('{"metrics": {"W": 100}}', encoding="utf-8")
+            (folder / "predictions.parquet").write_bytes(b"predictions")
+            (folder / "model.pt").write_bytes(b"model")
+
+            with patch("pathlib.Path.open", side_effect=PermissionError("denied")):
+                self.assertEqual(fingerprint(folder / "model.pt"), {"unreadable": "denied"})
+
+            with patch("audit_run_provenance.fingerprint", side_effect=lambda path: (
+                {"unreadable": "denied"} if path.name == "model.pt" else fingerprint(path)
+            )):
+                report = audit(root, ["P1"])
+
+            self.assertEqual(report["artifact_status"], "incomplete")
+            self.assertEqual(report["unreadable_artifacts"], {"P1": ["model.pt"]})
+            self.assertEqual(report["missing_scores"], [])
+
 
     def test_nonfinite_w_requires_incomplete_audit(self):
         with tempfile.TemporaryDirectory() as temp:
