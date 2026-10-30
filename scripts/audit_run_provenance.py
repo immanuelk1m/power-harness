@@ -21,6 +21,8 @@ def fingerprint(path):
             for chunk in iter(lambda: stream.read(1024 * 1024), b""):
                 digest.update(chunk)
         stat = path.stat()
+        if stat.st_size == 0:
+            return {"empty": True, "bytes": 0}
         return {
             "sha256": digest.hexdigest(),
             "bytes": stat.st_size,
@@ -158,6 +160,11 @@ def audit(root, run_ids, compare_parquet=False):
         for run_id, record in runs.items()
     }
     unreadable_artifacts = {run_id: names for run_id, names in unreadable_artifacts.items() if names}
+    empty_artifacts = {
+        run_id: [name for name, info in record["files"].items() if info.get("empty")]
+        for run_id, record in runs.items()
+    }
+    empty_artifacts = {run_id: names for run_id, names in empty_artifacts.items() if names}
     missing_scores = [run_id for run_id, record in runs.items() if record["W"] is None]
     invalid_group_scores = {
         run_id: record["invalid_group_scores"]
@@ -168,7 +175,7 @@ def audit(root, run_ids, compare_parquet=False):
         for run_id, record in runs.items()
     }
     unreadable = {run_id: keys for run_id, keys in unreadable.items() if keys}
-    incomplete = bool(missing or unreadable_artifacts or missing_scores or invalid_group_scores or unreadable)
+    incomplete = bool(missing or unreadable_artifacts or empty_artifacts or missing_scores or invalid_group_scores or unreadable)
     unverified_pairs = [
         name for name, pair in pairs.items()
         if compare_parquet and pair["prediction_bytes_equal"] is not True
@@ -189,6 +196,7 @@ def audit(root, run_ids, compare_parquet=False):
         "unverified_value_pairs": unverified_pairs,
         "missing_artifacts": missing,
         "unreadable_artifacts": unreadable_artifacts,
+        "empty_artifacts": empty_artifacts,
         "missing_scores": missing_scores,
         "invalid_group_scores": invalid_group_scores,
         "unreadable_json": unreadable,
