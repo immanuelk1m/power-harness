@@ -33,8 +33,11 @@ def fingerprint(path):
 def w_value(value):
     if isinstance(value, dict):
         value = value.get("W")
-    score = float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
-    return score if score is not None and isfinite(score) else None
+    try:
+        score = float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+    except OverflowError:
+        return None
+    return score if score is not None and isfinite(score) and score >= 0 else None
 
 
 def inspect_run(root, run_id):
