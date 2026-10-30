@@ -195,8 +195,7 @@ def audit(root, run_ids, compare_parquet=False, distinct_seeds=False):
     incomplete = bool(missing or unreadable_artifacts or empty_artifacts or missing_scores or invalid_group_scores or unreadable or missing_seeds)
     unverified_pairs = [
         name for name, pair in pairs.items()
-        if compare_parquet and pair["prediction_bytes_equal"] is not True
-        and not isinstance(pair.get("prediction_values", {}).get("equal"), bool)
+        if compare_parquet and not isinstance(pair.get("prediction_values", {}).get("equal"), bool)
     ]
     flagged = [
         name for name, run in runs.items()
