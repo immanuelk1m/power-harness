@@ -125,5 +125,22 @@ class AuditTests(unittest.TestCase):
                     self.assertIn("unavailable", result)
 
 
+    def test_parquet_comparison_handles_reordered_rows_and_different_encoding(self):
+        try:
+            import pandas as pd
+            import pyarrow  # noqa: F401
+        except ImportError:
+            self.skipTest("Optional parquet dependencies are unavailable")
+
+        with tempfile.TemporaryDirectory() as temp:
+            left, right = Path(temp) / "left.parquet", Path(temp) / "right.parquet"
+            values = pd.DataFrame({"site_id": [1, 2], "ts": [1, 1], "forecast": [3.0, 4.0]})
+            values.to_parquet(left, compression="snappy", index=False)
+            values.iloc[::-1][["forecast", "ts", "site_id"]].to_parquet(right, compression=None, index=False)
+
+            self.assertNotEqual(left.read_bytes(), right.read_bytes())
+            self.assertTrue(compare_values(left, right)["equal"])
+
+
 if __name__ == "__main__":
     unittest.main()
