@@ -43,6 +43,39 @@ class AuditTests(unittest.TestCase):
             self.assertEqual(valid["artifact_status"], "present")
             self.assertEqual(valid["consistency_status"], "no_flags")
 
+    def test_distinct_seeds_with_shared_artifacts_require_review(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for run_id, seed in (("P1", 0), ("P2", 1)):
+                folder = root / run_id
+                folder.mkdir()
+                (folder / "config.json").write_text(json.dumps({"seed": seed}), encoding="utf-8")
+                (folder / "manifest.json").write_text("{}", encoding="utf-8")
+                (folder / "result.json").write_text('{"metrics": {"W": 100}}', encoding="utf-8")
+                (folder / "predictions.parquet").write_bytes(b"same predictions")
+                (folder / "model.pt").write_bytes(b"same model")
+
+            self.assertEqual(audit(root, ["P1", "P2"])["consistency_status"], "no_flags")
+            shared = audit(root, ["P1", "P2"], distinct_seeds=True)
+            self.assertIn("warning", shared["pairs"]["P1/P2"])
+            self.assertEqual(shared["consistency_status"], "review_required")
+            self.assertEqual(shared["artifact_status"], "present")
+
+            (root / "P2" / "predictions.parquet").write_bytes(b"different predictions")
+            model_only = audit(root, ["P1", "P2"], distinct_seeds=True)
+            self.assertIn("warning", model_only["pairs"]["P1/P2"])
+
+            (root / "P2" / "model.pt").write_bytes(b"different model")
+            independent = audit(root, ["P1", "P2"], distinct_seeds=True)
+            self.assertNotIn("warning", independent["pairs"]["P1/P2"])
+            self.assertEqual(independent["consistency_status"], "no_flags")
+
+            (root / "P2" / "model.pt").write_bytes(b"same model")
+            (root / "P2" / "config.json").write_text('{"seed": 0}', encoding="utf-8")
+            paired = audit(root, ["P1", "P2"], distinct_seeds=True)
+            self.assertNotIn("warning", paired["pairs"]["P1/P2"])
+            self.assertEqual(paired["duplicate_seeds"], {"0": ["P1", "P2"]})
+
     def test_same_predictions_different_scores_are_flagged(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
