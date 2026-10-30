@@ -156,6 +156,34 @@ class AuditTests(unittest.TestCase):
                     self.assertIsNone(report["runs"]["P1"]["W"])
 
 
+    def test_negative_settlement_scores_are_incomplete(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp) / "P1"
+            folder.mkdir()
+            for name in ("config.json", "manifest.json"):
+                (folder / name).write_text("{}", encoding="utf-8")
+            (folder / "model.pt").write_bytes(b"model")
+            (folder / "predictions.parquet").write_bytes(b"predictions")
+
+            for total, g1, missing, invalid in (
+                (-1, 40, ["P1"], {}),
+                (100, -1, [], {"P1": ["G1"]}),
+            ):
+                with self.subTest(total=total, g1=g1):
+                    (folder / "result.json").write_text(
+                        json.dumps({"metrics": {"W": total, "group_metrics": {
+                            "G1": {"W": g1}, "G2": {"W": 60},
+                        }}}), encoding="utf-8",
+                    )
+                    report = audit(Path(temp), ["P1"])
+                    self.assertEqual(report["artifact_status"], "incomplete")
+                    self.assertEqual(report["missing_scores"], missing)
+                    self.assertEqual(report["invalid_group_scores"], invalid)
+
+    def test_overflowing_integer_w_is_invalid(self):
+        from audit_run_provenance import w_value
+        self.assertIsNone(w_value(10 ** 400))
+
     def test_malformed_group_scores_require_incomplete_audit(self):
         with tempfile.TemporaryDirectory() as temp:
             folder = Path(temp) / "P1"
