@@ -34,6 +34,8 @@ class AuditTests(unittest.TestCase):
             self.assertTrue(report["runs"]["P1"]["group_sum_consistent"])
             self.assertFalse(report["runs"]["P2"]["group_sum_consistent"])
             self.assertIn("warning", report["runs"]["P2"])
+            self.assertEqual(report["consistency_status"], "review_required")
+            self.assertEqual(report["consistency_warnings"], ["P2", "P1/P2"])
             self.assertTrue(report["runs"]["P1"]["files"]["manifest.json"]["missing"])
 
 
@@ -52,6 +54,7 @@ class AuditTests(unittest.TestCase):
             self.assertTrue(report["runs"]["P2"]["group_sum_consistent"])
             self.assertNotIn("warning", report["runs"]["P2"])
             self.assertNotIn("warning", report["pairs"]["P1/P2"])
+            self.assertEqual(report["consistency_status"], "no_flags")
 
 
     def test_equal_parquet_values_with_different_bytes_and_scores_are_flagged(self):
@@ -103,6 +106,29 @@ class AuditTests(unittest.TestCase):
             self.assertEqual(report["artifact_status"], "incomplete")
             self.assertIn("predictions.parquet", report["missing_artifacts"]["P2235"])
             self.assertEqual(report["missing_scores"], ["P2235"])
+
+    def test_complete_artifacts_with_conflicting_scores_require_review(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for run_id, score in (("P1", 100), ("P2", 120)):
+                folder = root / run_id
+                folder.mkdir()
+                (folder / "config.json").write_text("{}", encoding="utf-8")
+                (folder / "manifest.json").write_text("{}", encoding="utf-8")
+                (folder / "result.json").write_text(json.dumps({"metrics": {"W": score}}), encoding="utf-8")
+                (folder / "model.pt").write_bytes(b"same model")
+                (folder / "predictions.parquet").write_bytes(b"same predictions")
+
+            result = subprocess.run(
+                [sys.executable, str(Path(__file__).resolve().parents[1] / "scripts" / "audit_run_provenance.py"),
+                 temp, "P1", "P2"],
+                capture_output=True, text=True, check=False,
+            )
+            report = json.loads(result.stdout)
+            self.assertEqual(result.returncode, 3)
+            self.assertEqual(report["artifact_status"], "present")
+            self.assertEqual(report["consistency_status"], "review_required")
+            self.assertEqual(report["consistency_warnings"], ["P1/P2"])
 
     def test_requested_value_comparison_failure_exits_nonzero(self):
         with tempfile.TemporaryDirectory() as temp:
