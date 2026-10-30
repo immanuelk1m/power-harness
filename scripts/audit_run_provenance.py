@@ -162,6 +162,10 @@ def audit(root, run_ids, compare_parquet=False, distinct_seeds=False):
         values_equal = pair.get("prediction_values", {}).get("equal") is True
         if (same_bytes or values_equal) and pair["W_delta"] is not None and not isclose(pair["W_delta"], 0, rel_tol=0, abs_tol=0.01):
             pair["warning"] = "Same prediction bytes or values but different W: verify labels, groups, SMP, evaluator and result paths."
+        if (distinct_seeds and a["seed"] is not None and b["seed"] is not None
+                and str(a["seed"]) != str(b["seed"])
+                and (pair["model_bytes_equal"] or same_bytes or values_equal)):
+            pair.setdefault("warning", "Different seeds share identical model or predictions: verify independent training.")
         pairs[left + "/" + right] = pair
     missing = {
         run_id: [name for name, info in record["files"].items() if info.get("missing")]
