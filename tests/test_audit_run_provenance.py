@@ -39,6 +39,35 @@ class AuditTests(unittest.TestCase):
             self.assertTrue(report["runs"]["P1"]["files"]["manifest.json"]["missing"])
 
 
+    def test_json_changed_after_fingerprint_is_incomplete(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            folder = root / "P1"
+            folder.mkdir()
+            for name, content in (
+                ("config.json", "{}"),
+                ("manifest.json", "{}"),
+                ("result.json", '{"metrics": {"W": 100}}'),
+            ):
+                (folder / name).write_text(content, encoding="utf-8")
+            (folder / "predictions.parquet").write_bytes(b"predictions")
+            (folder / "model.pt").write_bytes(b"model")
+
+            read_text = Path.read_text
+
+            def rewrite_after_read(path, *args, **kwargs):
+                content = read_text(path, *args, **kwargs)
+                if path.name == "result.json":
+                    path.write_text('{"metrics": {"W": 120}}', encoding="utf-8")
+                return content
+
+            with patch.object(Path, "read_text", rewrite_after_read):
+                report = audit(root, ["P1"])
+
+            self.assertEqual(report["artifact_status"], "incomplete")
+            self.assertEqual(report["unreadable_artifacts"], {"P1": ["result.json"]})
+            self.assertIsNone(report["runs"]["P1"]["W"])
+
     def test_conflicting_seed_metadata_requires_review(self):
         with tempfile.TemporaryDirectory() as temp:
             folder = Path(temp) / "P1"
