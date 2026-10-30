@@ -107,6 +107,31 @@ class AuditTests(unittest.TestCase):
             self.assertIn("predictions.parquet", report["missing_artifacts"]["P2235"])
             self.assertEqual(report["missing_scores"], ["P2235"])
 
+    def test_nonfinite_w_requires_incomplete_audit(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp) / "P1"
+            folder.mkdir()
+            (folder / "config.json").write_text("{}", encoding="utf-8")
+            (folder / "manifest.json").write_text("{}", encoding="utf-8")
+            (folder / "model.pt").write_bytes(b"model")
+            (folder / "predictions.parquet").write_bytes(b"prediction")
+            for score in ("1e309", "NaN"):
+                with self.subTest(score=score):
+                    (folder / "result.json").write_text(
+                        '{"metrics": {"W": ' + score + '}}', encoding="utf-8",
+                    )
+                    result = subprocess.run(
+                        [sys.executable, str(Path(__file__).resolve().parents[1] / "scripts" / "audit_run_provenance.py"),
+                         temp, "P1"],
+                        capture_output=True, text=True, check=False,
+                    )
+                    report = json.loads(result.stdout)
+                    self.assertEqual(result.returncode, 2)
+                    self.assertEqual(report["artifact_status"], "incomplete")
+                    self.assertEqual(report["missing_scores"], ["P1"])
+                    self.assertIsNone(report["runs"]["P1"]["W"])
+
+
     def test_complete_artifacts_with_conflicting_scores_require_review(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
