@@ -13,18 +13,21 @@ FILES = ("config.json", "result.json", "manifest.json", "predictions.parquet", "
 
 
 def fingerprint(path):
-    if not path.is_file():
-        return {"missing": True}
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    stat = path.stat()
-    return {
-        "sha256": digest.hexdigest(),
-        "bytes": stat.st_size,
-        "mtime_utc": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
-    }
+    try:
+        if not path.is_file():
+            return {"missing": True}
+        digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        stat = path.stat()
+        return {
+            "sha256": digest.hexdigest(),
+            "bytes": stat.st_size,
+            "mtime_utc": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
+        }
+    except OSError as error:
+        return {"unreadable": str(error)}
 
 
 def w_value(value):
@@ -39,7 +42,7 @@ def inspect_run(root, run_id):
     files = {name: fingerprint(folder / name) for name in FILES}
     record = {"files": files, "seed": None, "parent": None, "W": None, "group_W": None}
     for name in ("config.json", "manifest.json", "result.json"):
-        if files[name].get("missing"):
+        if files[name].get("missing") or files[name].get("unreadable"):
             continue
         try:
             data = json.loads((folder / name).read_text(encoding="utf-8"))
@@ -130,13 +133,18 @@ def audit(root, run_ids, compare_parquet=False):
         for run_id, record in runs.items()
     }
     missing = {run_id: names for run_id, names in missing.items() if names}
+    unreadable_artifacts = {
+        run_id: [name for name, info in record["files"].items() if info.get("unreadable")]
+        for run_id, record in runs.items()
+    }
+    unreadable_artifacts = {run_id: names for run_id, names in unreadable_artifacts.items() if names}
     missing_scores = [run_id for run_id, record in runs.items() if record["W"] is None]
     unreadable = {
         run_id: [key for key in record if key.endswith("_error")]
         for run_id, record in runs.items()
     }
     unreadable = {run_id: keys for run_id, keys in unreadable.items() if keys}
-    incomplete = bool(missing or missing_scores or unreadable)
+    incomplete = bool(missing or unreadable_artifacts or missing_scores or unreadable)
     unverified_pairs = [
         name for name, pair in pairs.items()
         if compare_parquet and pair["prediction_bytes_equal"] is not True
@@ -153,6 +161,7 @@ def audit(root, run_ids, compare_parquet=False):
         "comparison_status": "incomplete" if unverified_pairs else "complete" if compare_parquet else "not_requested",
         "unverified_value_pairs": unverified_pairs,
         "missing_artifacts": missing,
+        "unreadable_artifacts": unreadable_artifacts,
         "missing_scores": missing_scores,
         "unreadable_json": unreadable,
         "note": "No evaluator was called; no protected score was recomputed. Artifact presence does not prove evaluation-input identity.",
