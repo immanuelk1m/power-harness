@@ -14,6 +14,35 @@ from audit_run_provenance import audit, compare_values, fingerprint  # noqa: E40
 
 
 class AuditTests(unittest.TestCase):
+    def test_distinct_seed_audit_is_opt_in_and_fails_closed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for run_id, seed in (("P1", 0), ("P2", 0), ("P3", None)):
+                folder = root / run_id
+                folder.mkdir()
+                (folder / "config.json").write_text(json.dumps({"seed": seed}), encoding="utf-8")
+                (folder / "manifest.json").write_text("{}", encoding="utf-8")
+                (folder / "result.json").write_text('{"metrics": {"W": 100}}', encoding="utf-8")
+                (folder / "predictions.parquet").write_bytes(run_id.encode())
+                (folder / "model.pt").write_bytes(run_id.encode())
+
+            self.assertEqual(audit(root, ["P1", "P2", "P3"])["consistency_status"], "no_flags")
+            duplicate = audit(root, ["P1", "P2"], distinct_seeds=True)
+            self.assertEqual(duplicate["duplicate_seeds"], {"0": ["P1", "P2"]})
+            self.assertEqual(duplicate["consistency_status"], "review_required")
+            self.assertEqual(duplicate["artifact_status"], "present")
+            incomplete = audit(root, ["P1", "P2", "P3"], distinct_seeds=True)
+            self.assertEqual(incomplete["missing_seeds"], ["P3"])
+            self.assertEqual(incomplete["artifact_status"], "incomplete")
+
+            (root / "P2" / "config.json").write_text('{"seed": 1}', encoding="utf-8")
+            (root / "P3" / "config.json").write_text('{"seed": 2}', encoding="utf-8")
+            valid = audit(root, ["P1", "P2", "P3"], distinct_seeds=True)
+            self.assertEqual(valid["missing_seeds"], [])
+            self.assertEqual(valid["duplicate_seeds"], {})
+            self.assertEqual(valid["artifact_status"], "present")
+            self.assertEqual(valid["consistency_status"], "no_flags")
+
     def test_same_predictions_different_scores_are_flagged(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
