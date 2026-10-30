@@ -216,6 +216,15 @@ class AuditTests(unittest.TestCase):
             self.assertEqual(report["missing_scores"], [])
 
 
+    def test_modified_artifact_during_hash_is_unreadable(self):
+        with tempfile.TemporaryDirectory() as temp:
+            artifact = Path(temp) / "model.pt"
+            artifact.write_bytes(b"original")
+            with patch("audit_run_provenance.hashlib.sha256") as digest:
+                digest.return_value.update.side_effect = lambda _: artifact.write_bytes(b"modified content")
+                self.assertEqual(fingerprint(artifact), {"unreadable": "Artifact changed during hashing"})
+
+
     def test_empty_prediction_artifact_is_incomplete(self):
         with tempfile.TemporaryDirectory() as temp:
             folder = Path(temp) / "P1"
