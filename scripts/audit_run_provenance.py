@@ -141,9 +141,13 @@ def audit(root, run_ids, compare_parquet=False):
         if compare_parquet and pair["prediction_bytes_equal"] is not True
         and not isinstance(pair.get("prediction_values", {}).get("equal"), bool)
     ]
+    flagged = [name for name, run in runs.items() if "warning" in run]
+    flagged += [name for name, pair in pairs.items() if "warning" in pair]
     return {
         "runs": runs,
         "pairs": pairs,
+        "consistency_status": "review_required" if flagged else "no_flags",
+        "consistency_warnings": flagged,
         "artifact_status": "incomplete" if incomplete else "present",
         "comparison_status": "incomplete" if unverified_pairs else "complete" if compare_parquet else "not_requested",
         "unverified_value_pairs": unverified_pairs,
@@ -166,6 +170,8 @@ def main():
     print(json.dumps(report, ensure_ascii=False, indent=2))
     if report["artifact_status"] == "incomplete" or report["comparison_status"] == "incomplete":
         sys.exit(2)
+    if report["consistency_status"] == "review_required":
+        sys.exit(3)
 
 
 if __name__ == "__main__":
