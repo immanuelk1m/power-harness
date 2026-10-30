@@ -57,6 +57,9 @@ def inspect_run(root, run_id):
         except (OSError, ValueError) as error:
             record[name + "_error"] = str(error)
             continue
+        if fingerprint(folder / name).get("sha256") != files[name].get("sha256"):
+            files[name] = {"unreadable": "Artifact changed between hashing and JSON parsing"}
+            continue
         if not isinstance(data, dict):
             record[name + "_error"] = "JSON root must be an object"
             continue
