@@ -16,11 +16,14 @@ def fingerprint(path):
     try:
         if not path.is_file():
             return {"missing": True}
+        before = path.stat()
         digest = hashlib.sha256()
         with path.open("rb") as stream:
             for chunk in iter(lambda: stream.read(1024 * 1024), b""):
                 digest.update(chunk)
         stat = path.stat()
+        if (before.st_size, before.st_mtime_ns, before.st_ino) != (stat.st_size, stat.st_mtime_ns, stat.st_ino):
+            return {"unreadable": "Artifact changed during hashing"}
         if stat.st_size == 0:
             return {"empty": True, "bytes": 0}
         return {
