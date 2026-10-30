@@ -6,7 +6,7 @@ import json
 import sys
 from datetime import datetime, timezone
 from itertools import combinations
-from math import isclose
+from math import isclose, isfinite
 from pathlib import Path
 
 FILES = ("config.json", "result.json", "manifest.json", "predictions.parquet", "model.pt")
@@ -30,7 +30,8 @@ def fingerprint(path):
 def w_value(value):
     if isinstance(value, dict):
         value = value.get("W")
-    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+    score = float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+    return score if score is not None and isfinite(score) else None
 
 
 def inspect_run(root, run_id):
