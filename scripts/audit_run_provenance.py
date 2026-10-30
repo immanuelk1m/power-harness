@@ -84,14 +84,17 @@ def inspect_run(root, run_id):
                         record["group_sum_consistent"] = isclose(sum(values.values()), record["W"], rel_tol=0, abs_tol=0.01)
                         if not record["group_sum_consistent"]:
                             record["warning"] = "G1 + G2 does not match W for this run."
-    for key in ("seed", "parent"):
+    for key in ("seed", "parent", "source_hash", "cache_hash", "protocol_hash", "data_hash"):
         values = {
             name: record[name + "_provenance"][key]
             for name in ("config.json", "manifest.json", "result.json")
             if key in record.get(name + "_provenance", {})
         }
         if len({str(value) for value in values.values()}) > 1:
-            record[key + "_conflict"] = values
+            if key in ("seed", "parent"):
+                record[key + "_conflict"] = values
+            else:
+                record.setdefault("provenance_conflicts", {})[key] = values
     return record
 
 
@@ -173,7 +176,7 @@ def audit(root, run_ids, compare_parquet=False):
     ]
     flagged = [
         name for name, run in runs.items()
-        if "warning" in run or "seed_conflict" in run or "parent_conflict" in run
+        if "warning" in run or "seed_conflict" in run or "parent_conflict" in run or "provenance_conflicts" in run
     ]
     flagged += [name for name, pair in pairs.items() if "warning" in pair]
     return {
