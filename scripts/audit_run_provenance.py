@@ -129,6 +129,15 @@ def compare_values(left, right, expected_rows=None, expected_grid=None, referenc
                 return {**result, "equal": None, "unavailable": f"Expected complete {sites}-site x {hours}-hour grid."}
         if not len(a) or not len(b):
             return {**result, "equal": None, "unavailable": "Empty prediction grid: cannot compare values reliably."}
+        values = [column for column in a.columns if column not in keys]
+        if not values or set(a.columns) != set(b.columns):
+            return {**result, "equal": None, "unavailable": "Missing or mismatched prediction columns."}
+        numeric = [column for column in values if all(pd.api.types.is_numeric_dtype(frame[column]) for frame in (a, b))]
+        if not numeric:
+            return {**result, "equal": None, "unavailable": "No numeric prediction values to compare."}
+        import numpy as np
+        if any(not np.isfinite(frame[numeric].to_numpy(dtype=float)).all() for frame in (a, b)):
+            return {**result, "equal": None, "unavailable": "Non-finite prediction values."}
         a = a.sort_values(keys).reset_index(drop=True)
         b = b.sort_values(keys).reset_index(drop=True)
         if not a[keys].equals(b[keys]):
