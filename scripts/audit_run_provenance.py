@@ -106,7 +106,7 @@ def inspect_run(root, run_id):
     return record
 
 
-def compare_values(left, right):
+def compare_values(left, right, expected_rows=None):
     try:
         import pandas as pd
 
@@ -119,6 +119,8 @@ def compare_values(left, right):
             reason = ("Missing site_id/ts keys" if len(keys) != 2 else
                       "Duplicate site_id/ts keys" if any(duplicates) else "Null site_id/ts keys")
             return {**result, "equal": None, "unavailable": reason + ": cannot align prediction values reliably."}
+        if expected_rows is not None and (len(a) != expected_rows or len(b) != expected_rows):
+            return {**result, "equal": None, "unavailable": f"Expected {expected_rows} prediction rows per run."}
         if not len(a) or not len(b):
             return {**result, "equal": None, "unavailable": "Empty prediction grid: cannot compare values reliably."}
         if set(a.columns) == set(b.columns):
@@ -130,7 +132,7 @@ def compare_values(left, right):
         return {"unavailable": str(error)}
 
 
-def audit(root, run_ids, compare_parquet=False, distinct_seeds=False):
+def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_rows=None):
     runs = {run_id: inspect_run(root, run_id) for run_id in run_ids}
     missing_seeds = [run_id for run_id, run in runs.items() if run["seed"] is None] if distinct_seeds else []
     seeds = {}
@@ -160,7 +162,7 @@ def audit(root, run_ids, compare_parquet=False, distinct_seeds=False):
         if differences:
             pair["provenance_differences"] = differences
         if compare_parquet and same_bytes is not None:
-            pair["prediction_values"] = compare_values(root / left / "predictions.parquet", root / right / "predictions.parquet")
+            pair["prediction_values"] = compare_values(root / left / "predictions.parquet", root / right / "predictions.parquet", expected_rows)
         values_equal = pair.get("prediction_values", {}).get("equal") is True
         if (same_bytes or values_equal) and pair["W_delta"] is not None and not isclose(pair["W_delta"], 0, rel_tol=0, abs_tol=0.01):
             pair["warning"] = "Same prediction bytes or values but different W: verify labels, groups, SMP, evaluator and result paths."
@@ -231,10 +233,13 @@ def main():
     parser.add_argument("run_ids", nargs="+", help="Existing run directory names")
     parser.add_argument("--compare-values", action="store_true", help="Compare parquet values when bytes differ (requires pandas parquet engine)")
     parser.add_argument("--distinct-seeds", action="store_true", help="Require present, distinct config seeds across the audited runs")
+    parser.add_argument("--expected-rows", type=int, help="Expected rows per Parquet file; requires --compare-values")
     args = parser.parse_args()
+    if args.expected_rows is not None and (args.expected_rows < 1 or not args.compare_values):
+        parser.error("--expected-rows must be positive and requires --compare-values")
     if len(args.run_ids) != len(set(args.run_ids)) or any(Path(run_id).name != run_id or run_id in (".", "..") for run_id in args.run_ids):
         parser.error("Run IDs must be distinct directory names")
-    report = audit(args.runs_dir, args.run_ids, args.compare_values, args.distinct_seeds)
+    report = audit(args.runs_dir, args.run_ids, args.compare_values, args.distinct_seeds, args.expected_rows)
     print(json.dumps(report, ensure_ascii=False, indent=2))
     if report["artifact_status"] == "incomplete" or report["comparison_status"] == "incomplete":
         sys.exit(2)
