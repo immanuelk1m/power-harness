@@ -1285,6 +1285,8 @@ class AuditTests(unittest.TestCase):
             )
             self.assertEqual(verified.returncode, 0)
             self.assertTrue(json.loads(verified.stdout)["reference_grid_hash_matches"])
+            self.assertTrue(audit(root, ["P1", "P2"], compare_parquet=True,
+                                  reference_grid=official, reference_sha256=trusted_hash.upper())["reference_grid_hash_matches"])
 
             mismatched = subprocess.run(
                 [*command, "--reference-grid", str(official),
