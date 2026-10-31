@@ -951,6 +951,49 @@ class AuditTests(unittest.TestCase):
             self.assertEqual(json.loads(valid.stdout)["missing_group_scores"], [])
 
 
+    def test_required_provenance_hashes_rejects_missing_or_invalid_metadata(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for run_id, seed in (("P1", 0), ("P2", 1)):
+                folder = root / run_id
+                folder.mkdir()
+                config = {"seed": seed}
+                manifest = {"data_hash": "data", "protocol_hash": "protocol"} if run_id == "P1" else {}
+                if run_id == "P2":
+                    config["data_hash"] = "data"
+                (folder / "config.json").write_text(json.dumps(config), encoding="utf-8")
+                (folder / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+                (folder / "result.json").write_text('{"metrics": {"W": 100}}', encoding="utf-8")
+                (folder / "model.pt").write_bytes(run_id.encode())
+                (folder / "predictions.parquet").write_bytes(run_id.encode())
+
+            script = Path(__file__).resolve().parents[1] / "scripts" / "audit_run_provenance.py"
+            command = [sys.executable, str(script), temp, "P1", "P2"]
+            default = subprocess.run(command, capture_output=True, text=True, check=False)
+            self.assertEqual(default.returncode, 0)
+
+            for invalid in ({}, {"protocol_hash": True}, {"protocol_hash": "  "}):
+                (root / "P2" / "manifest.json").write_text(json.dumps(invalid), encoding="utf-8")
+                report = audit(root, ["P1", "P2"], require_provenance_hashes=True)
+                self.assertEqual(report["missing_provenance_hashes"], {"P2": ["protocol_hash"]})
+                self.assertEqual(report["artifact_status"], "incomplete")
+
+            required = subprocess.run(
+                [*command, "--require-provenance-hashes"], capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(required.returncode, 2)
+            self.assertEqual(json.loads(required.stdout)["missing_provenance_hashes"], {"P2": ["protocol_hash"]})
+
+            (root / "P2" / "manifest.json").write_text(
+                '{"protocol_hash": "protocol"}', encoding="utf-8",
+            )
+            valid = subprocess.run(
+                [*command, "--require-provenance-hashes"], capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(valid.returncode, 0)
+            self.assertEqual(json.loads(valid.stdout)["missing_provenance_hashes"], {})
+
+
     def test_boolean_only_parquet_columns_do_not_count_as_predictions(self):
         import pandas as pd
 
