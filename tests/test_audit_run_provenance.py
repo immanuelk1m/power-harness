@@ -562,6 +562,38 @@ class AuditTests(unittest.TestCase):
             self.assertTrue(compare_values(left, right)["equal"])
 
 
+    def test_equal_row_count_with_different_grid_is_incomplete(self):
+        try:
+            import pandas as pd
+            import pyarrow  # noqa: F401
+        except ImportError:
+            self.skipTest("Optional parquet dependencies are unavailable")
+
+        with tempfile.TemporaryDirectory() as temp:
+            for run_id, site_ids in (("P1", [1, 2]), ("P2", [1, 3])):
+                folder = Path(temp) / run_id
+                folder.mkdir()
+                (folder / "config.json").write_text("{}", encoding="utf-8")
+                (folder / "manifest.json").write_text("{}", encoding="utf-8")
+                (folder / "result.json").write_text('{"metrics": {"W": 100}}', encoding="utf-8")
+                (folder / "model.pt").write_bytes(b"model")
+                pd.DataFrame({"site_id": site_ids, "ts": [1, 1], "forecast": [2.0, 3.0]}).to_parquet(
+                    folder / "predictions.parquet", index=False,
+                )
+
+            result = subprocess.run(
+                [sys.executable, str(Path(__file__).resolve().parents[1] / "scripts" / "audit_run_provenance.py"),
+                 temp, "P1", "P2", "--compare-values", "--expected-rows", "2"],
+                capture_output=True, text=True, check=False,
+            )
+            report = json.loads(result.stdout)
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(report["comparison_status"], "incomplete")
+            self.assertEqual(report["unverified_value_pairs"], ["P1/P2"])
+            self.assertIsNone(report["pairs"]["P1/P2"]["prediction_values"]["equal"])
+            self.assertIn("Different site_id/ts grids", report["pairs"]["P1/P2"]["prediction_values"]["unavailable"])
+
+
     def test_expected_rows_rejects_partial_prediction_grid(self):
         try:
             import pandas as pd
