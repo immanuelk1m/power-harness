@@ -970,5 +970,34 @@ class AuditTests(unittest.TestCase):
             self.assertTrue(compare_values(left, right)["equal"])
 
 
+    def test_prediction_rewritten_during_value_comparison_is_incomplete(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for run_id in ("P1", "P2"):
+                folder = root / run_id
+                folder.mkdir()
+                (folder / "config.json").write_text("{}", encoding="utf-8")
+                (folder / "manifest.json").write_text("{}", encoding="utf-8")
+                (folder / "result.json").write_text('{"metrics": {"W": 100}}', encoding="utf-8")
+                (folder / "model.pt").write_bytes(b"model")
+                (folder / "predictions.parquet").write_bytes(b"initial")
+
+            with patch("audit_run_provenance.compare_values", return_value={"equal": True}):
+                stable = audit(root, ["P1", "P2"], compare_parquet=True)
+            self.assertEqual(stable["comparison_status"], "complete")
+
+            def rewrite(left, right, *args):
+                left.write_bytes(b"changed")
+                return {"equal": True}
+
+            with patch("audit_run_provenance.compare_values", side_effect=rewrite):
+                report = audit(root, ["P1", "P2"], compare_parquet=True)
+            pair = report["pairs"]["P1/P2"]
+            self.assertEqual(report["comparison_status"], "incomplete")
+            self.assertEqual(report["unverified_value_pairs"], ["P1/P2"])
+            self.assertIsNone(pair["prediction_bytes_equal"])
+            self.assertIn("changed", pair["prediction_values"]["unavailable"])
+
+
 if __name__ == "__main__":
     unittest.main()
