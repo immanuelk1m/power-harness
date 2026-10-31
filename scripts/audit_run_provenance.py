@@ -226,7 +226,7 @@ def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_r
             for key in ("source_hash", "cache_hash", "protocol_hash", "data_hash"):
                 if key in left_meta and key in right_meta and left_meta[key] != right_meta[key]:
                     differences[filename + "." + key] = [left_meta[key], right_meta[key]]
-        for key in ("data_hash", "protocol_hash"):
+        for key in ("source_hash", "cache_hash", "data_hash", "protocol_hash"):
             if any(name.endswith("." + key) for name in differences):
                 continue
             left_values = {
@@ -243,6 +243,8 @@ def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_r
             pair["provenance_differences"] = differences
             if any(key.endswith((".data_hash", ".protocol_hash")) or key in ("data_hash", "protocol_hash") for key in differences):
                 pair["provenance_warning"] = "Different data/protocol hashes: verify evaluation-input identity."
+            elif any(key.endswith((".source_hash", ".cache_hash")) or key in ("source_hash", "cache_hash") for key in differences):
+                pair["provenance_warning"] = "Different source/cache hashes: verify run lineage."
         if compare_parquet and same_bytes is not None:
             paths = (root / left / "predictions.parquet", root / right / "predictions.parquet")
             pair["prediction_values"] = compare_values(*paths, expected_rows, expected_grid, reference_grid, prediction_column)
