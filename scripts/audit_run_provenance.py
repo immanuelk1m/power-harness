@@ -123,10 +123,12 @@ def compare_values(left, right, expected_rows=None):
             return {**result, "equal": None, "unavailable": f"Expected {expected_rows} prediction rows per run."}
         if not len(a) or not len(b):
             return {**result, "equal": None, "unavailable": "Empty prediction grid: cannot compare values reliably."}
-        if set(a.columns) == set(b.columns):
-            b = b[a.columns]
         a = a.sort_values(keys).reset_index(drop=True)
         b = b.sort_values(keys).reset_index(drop=True)
+        if not a[keys].equals(b[keys]):
+            return {**result, "equal": None, "unavailable": "Different site_id/ts grids: cannot compare prediction values."}
+        if set(a.columns) == set(b.columns):
+            b = b[a.columns]
         return {**result, "equal": a.equals(b)}
     except Exception as error:  # Optional parquet dependencies must not prevent the hash audit.
         return {"unavailable": str(error)}
