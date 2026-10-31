@@ -671,5 +671,59 @@ class AuditTests(unittest.TestCase):
             self.assertIn("requires --compare-values", invalid.stderr)
 
 
+    def test_reference_grid_checks_official_keys_not_just_dimensions(self):
+        try:
+            import pandas as pd
+            import pyarrow  # noqa: F401
+        except ImportError:
+            self.skipTest("Optional parquet dependencies are unavailable")
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            predictions = pd.DataFrame({
+                "site_id": [1, 1, 2, 2], "ts": [1, 2, 1, 2], "forecast": [1, 2, 3, 4],
+            })
+            for run_id in ("P1", "P2"):
+                folder = root / run_id
+                folder.mkdir()
+                for name in ("config.json", "manifest.json"):
+                    (folder / name).write_text("{}", encoding="utf-8")
+                (folder / "result.json").write_text('{"metrics": {"W": 100}}', encoding="utf-8")
+                (folder / "model.pt").write_bytes(b"model")
+                predictions.to_parquet(folder / "predictions.parquet", index=False)
+
+            reference = root / "official_keys.parquet"
+            command = [
+                sys.executable, str(Path(__file__).resolve().parents[1] / "scripts" / "audit_run_provenance.py"),
+                temp, "P1", "P2", "--compare-values", "--expected-grid", "2", "2",
+                "--reference-grid", str(reference),
+            ]
+
+            pd.DataFrame({"site_id": [1, 1, 3, 3], "ts": [1, 2, 1, 2]}).to_parquet(reference, index=False)
+            wrong_keys = subprocess.run(command, capture_output=True, text=True, check=False)
+            report = json.loads(wrong_keys.stdout)
+            self.assertEqual(wrong_keys.returncode, 2)
+            self.assertEqual(report["comparison_status"], "incomplete")
+            self.assertIn("differs from reference", report["pairs"]["P1/P2"]["prediction_values"]["unavailable"])
+
+            predictions[["site_id", "ts"]].to_parquet(reference, index=False)
+            valid = subprocess.run(command, capture_output=True, text=True, check=False)
+            self.assertEqual(valid.returncode, 0)
+            self.assertEqual(json.loads(valid.stdout)["comparison_status"], "complete")
+
+            pd.DataFrame({"site_id": [1, 1], "ts": [1, 1]}).to_parquet(reference, index=False)
+            invalid_reference = subprocess.run(command, capture_output=True, text=True, check=False)
+            self.assertEqual(invalid_reference.returncode, 2)
+            self.assertIn("duplicate", json.loads(invalid_reference.stdout)["pairs"]["P1/P2"]["prediction_values"]["unavailable"])
+
+            without_comparison = subprocess.run(
+                [*command[:4], "--reference-grid", str(reference)],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(without_comparison.returncode, 2)
+            self.assertIn("requires --compare-values", without_comparison.stderr)
+
+
+
 if __name__ == "__main__":
     unittest.main()
