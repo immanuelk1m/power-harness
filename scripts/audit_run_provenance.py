@@ -140,7 +140,10 @@ def compare_values(left, right, expected_rows=None, expected_grid=None, referenc
         values = [column for column in a.columns if column not in keys]
         if not values or set(a.columns) != set(b.columns):
             return {**result, "equal": None, "unavailable": "Missing or mismatched prediction columns."}
-        numeric = [column for column in values if all(pd.api.types.is_numeric_dtype(frame[column]) for frame in (a, b))]
+        numeric = [column for column in values if all(
+            pd.api.types.is_numeric_dtype(frame[column]) and not pd.api.types.is_bool_dtype(frame[column])
+            for frame in (a, b)
+        )]
         if not numeric:
             return {**result, "equal": None, "unavailable": "No numeric prediction values to compare."}
         import numpy as np
