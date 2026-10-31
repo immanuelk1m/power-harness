@@ -173,7 +173,7 @@ def compare_values(left, right, expected_rows=None, expected_grid=None, referenc
 
 def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_rows=None, expected_grid=None, reference_grid=None, require_group_metrics=False, expected_seeds=None, match_seed_order=False, require_provenance_hashes=False, prediction_column=None, reference_sha256=None):
     reference_info = fingerprint(reference_grid) if reference_grid is not None else None
-    reference_hash_matches = reference_info.get("sha256") == reference_sha256 if reference_sha256 is not None else None
+    reference_hash_matches = reference_info.get("sha256") == reference_sha256.lower() if reference_sha256 is not None else None
     reference_alias = reference_grid is not None and reference_grid.exists() and any(
         (root / run_id / "predictions.parquet").exists()
         and reference_grid.samefile(root / run_id / "predictions.parquet")
