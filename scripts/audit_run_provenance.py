@@ -187,9 +187,22 @@ def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_r
             for key in ("source_hash", "cache_hash", "protocol_hash", "data_hash"):
                 if key in left_meta and key in right_meta and left_meta[key] != right_meta[key]:
                     differences[filename + "." + key] = [left_meta[key], right_meta[key]]
+        for key in ("data_hash", "protocol_hash"):
+            if any(name.endswith("." + key) for name in differences):
+                continue
+            left_values = {
+                metadata[key] for filename in ("config.json", "manifest.json", "result.json")
+                if key in (metadata := a.get(filename + "_provenance", {}))
+            }
+            right_values = {
+                metadata[key] for filename in ("config.json", "manifest.json", "result.json")
+                if key in (metadata := b.get(filename + "_provenance", {}))
+            }
+            if len(left_values) == len(right_values) == 1 and left_values != right_values:
+                differences[key] = [left_values.pop(), right_values.pop()]
         if differences:
             pair["provenance_differences"] = differences
-            if any(key.endswith((".data_hash", ".protocol_hash")) for key in differences):
+            if any(key.endswith((".data_hash", ".protocol_hash")) or key in ("data_hash", "protocol_hash") for key in differences):
                 pair["provenance_warning"] = "Different data/protocol hashes: verify evaluation-input identity."
         if compare_parquet and same_bytes is not None:
             pair["prediction_values"] = compare_values(root / left / "predictions.parquet", root / right / "predictions.parquet", expected_rows, expected_grid, reference_grid)
