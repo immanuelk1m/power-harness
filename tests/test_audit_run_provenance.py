@@ -115,6 +115,38 @@ class AuditTests(unittest.TestCase):
             self.assertIn("requires --distinct-seeds", invalid.stderr)
 
 
+    def test_seed_order_can_be_verified_against_run_ids(self):
+        with tempfile.TemporaryDirectory() as temp:
+            for run_id, seed in (("P1", 1), ("P2", 0)):
+                folder = Path(temp) / run_id
+                folder.mkdir()
+                (folder / "config.json").write_text(json.dumps({"seed": seed}), encoding="utf-8")
+                (folder / "manifest.json").write_text("{}", encoding="utf-8")
+                (folder / "result.json").write_text('{"metrics": {"W": 100}}', encoding="utf-8")
+                (folder / "predictions.parquet").write_bytes(run_id.encode())
+                (folder / "model.pt").write_bytes(run_id.encode())
+
+            script = Path(__file__).resolve().parents[1] / "scripts" / "audit_run_provenance.py"
+            base = [sys.executable, str(script), temp, "P1", "P2", "--distinct-seeds", "--expected-seeds"]
+            set_only = subprocess.run([*base, "0", "1"], capture_output=True, text=True)
+            self.assertEqual(set_only.returncode, 0)
+            self.assertTrue(json.loads(set_only.stdout)["expected_seed_set_matches"])
+
+            swapped = subprocess.run([*base, "0", "1", "--match-seed-order"], capture_output=True, text=True)
+            self.assertEqual(swapped.returncode, 2)
+            self.assertFalse(json.loads(swapped.stdout)["expected_seed_order_matches"])
+
+            matched = subprocess.run([*base, "1", "0", "--match-seed-order"], capture_output=True, text=True)
+            self.assertEqual(matched.returncode, 0)
+            self.assertTrue(json.loads(matched.stdout)["expected_seed_order_matches"])
+
+            invalid = subprocess.run(
+                [sys.executable, str(script), temp, "P1", "P2", "--match-seed-order"],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(invalid.returncode, 2)
+            self.assertIn("requires --expected-seeds", invalid.stderr)
+
     def test_distinct_seeds_with_shared_artifacts_require_review(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
