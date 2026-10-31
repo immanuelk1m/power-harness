@@ -999,5 +999,38 @@ class AuditTests(unittest.TestCase):
             self.assertIn("changed", pair["prediction_values"]["unavailable"])
 
 
+    def test_reference_grid_changed_during_comparison_is_incomplete(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            reference = root / "official_grid.parquet"
+            reference.write_bytes(b"initial grid")
+            for run_id in ("P1", "P2"):
+                folder = root / run_id
+                folder.mkdir()
+                (folder / "config.json").write_text("{}", encoding="utf-8")
+                (folder / "manifest.json").write_text("{}", encoding="utf-8")
+                (folder / "result.json").write_text('{"metrics": {"W": 100}}', encoding="utf-8")
+                (folder / "model.pt").write_bytes(run_id.encode())
+                (folder / "predictions.parquet").write_bytes(run_id.encode())
+
+            with patch("audit_run_provenance.compare_values", return_value={"equal": True}):
+                stable = audit(root, ["P1", "P2"], compare_parquet=True, reference_grid=reference)
+            self.assertTrue(stable["reference_grid_stable"])
+            self.assertEqual(stable["comparison_status"], "complete")
+            self.assertIn("sha256", stable["reference_grid_fingerprint"])
+
+            def rewrite_reference(*args):
+                reference.write_bytes(b"modified grid")
+                return {"equal": True}
+
+            with patch("audit_run_provenance.compare_values", side_effect=rewrite_reference):
+                report = audit(root, ["P1", "P2"], compare_parquet=True, reference_grid=reference)
+            self.assertFalse(report["reference_grid_stable"])
+            self.assertEqual(report["artifact_status"], "incomplete")
+            self.assertEqual(report["comparison_status"], "incomplete")
+            self.assertEqual(report["unverified_value_pairs"], ["P1/P2"])
+
+
+
 if __name__ == "__main__":
     unittest.main()
