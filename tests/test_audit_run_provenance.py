@@ -1255,8 +1255,10 @@ class AuditTests(unittest.TestCase):
             prediction_path = root / "P1" / "predictions.parquet"
             alias = root / "linked_reference.parquet"
             alias.symlink_to(prediction_path)
+            hardlink = root / "hardlinked_reference.parquet"
+            hardlink.hardlink_to(prediction_path)
 
-            for reference in (prediction_path, alias):
+            for reference in (prediction_path, alias, hardlink):
                 result = subprocess.run(
                     [*command, "--reference-grid", str(reference)],
                     capture_output=True, text=True, check=False,
