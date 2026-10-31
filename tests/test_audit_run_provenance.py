@@ -750,5 +750,22 @@ class AuditTests(unittest.TestCase):
 
 
 
+    def test_compare_values_rejects_single_run_instead_of_reporting_complete(self):
+        with tempfile.TemporaryDirectory() as temp:
+            script = Path(__file__).resolve().parents[1] / "scripts" / "audit_run_provenance.py"
+            for options in (
+                ("--compare-values",),
+                ("--compare-values", "--expected-rows", "916872"),
+                ("--compare-values", "--expected-grid", "253", "3624"),
+            ):
+                result = subprocess.run(
+                    [sys.executable, str(script), temp, "P1", *options],
+                    capture_output=True, text=True, check=False,
+                )
+                self.assertEqual(result.returncode, 2)
+                self.assertEqual(result.stdout, "")
+                self.assertIn("--compare-values requires at least two run IDs", result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
