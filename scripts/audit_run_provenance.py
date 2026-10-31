@@ -261,6 +261,8 @@ def main():
     parser.add_argument("--expected-grid", type=int, nargs=2, metavar=("SITES", "HOURS"), help="Require a complete site-by-hour grid; requires --compare-values")
     parser.add_argument("--reference-grid", type=Path, help="Parquet file with official site_id/ts keys; requires --compare-values and two runs")
     args = parser.parse_args()
+    if args.compare_values and len(args.run_ids) < 2:
+        parser.error("--compare-values requires at least two run IDs")
     if args.expected_rows is not None and (args.expected_rows < 1 or not args.compare_values):
         parser.error("--expected-rows must be positive and requires --compare-values")
     if args.expected_grid is not None and (
