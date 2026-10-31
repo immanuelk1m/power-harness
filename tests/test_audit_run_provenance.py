@@ -562,5 +562,40 @@ class AuditTests(unittest.TestCase):
             self.assertTrue(compare_values(left, right)["equal"])
 
 
+    def test_expected_rows_rejects_partial_prediction_grid(self):
+        try:
+            import pandas as pd
+            import pyarrow  # noqa: F401
+        except ImportError:
+            self.skipTest("Optional parquet dependencies are unavailable")
+
+        with tempfile.TemporaryDirectory() as temp:
+            for run_id in ("P1", "P2"):
+                folder = Path(temp) / run_id
+                folder.mkdir()
+                (folder / "config.json").write_text("{}", encoding="utf-8")
+                (folder / "manifest.json").write_text("{}", encoding="utf-8")
+                (folder / "result.json").write_text('{"metrics": {"W": 100}}', encoding="utf-8")
+                (folder / "model.pt").write_bytes(b"model")
+                pd.DataFrame({"site_id": [1], "ts": [1], "forecast": [2.0]}).to_parquet(
+                    folder / "predictions.parquet", index=False,
+                )
+
+            command = [
+                sys.executable, str(Path(__file__).resolve().parents[1] / "scripts" / "audit_run_provenance.py"),
+                temp, "P1", "P2", "--compare-values", "--expected-rows",
+            ]
+            partial = subprocess.run([*command, "916872"], capture_output=True, text=True, check=False)
+            report = json.loads(partial.stdout)
+            self.assertEqual(partial.returncode, 2)
+            self.assertEqual(report["comparison_status"], "incomplete")
+            self.assertEqual(report["pairs"]["P1/P2"]["prediction_values"]["rows"], [1, 1])
+            self.assertIn("Expected 916872", report["pairs"]["P1/P2"]["prediction_values"]["unavailable"])
+
+            complete = subprocess.run([*command, "1"], capture_output=True, text=True, check=False)
+            self.assertEqual(complete.returncode, 0)
+            self.assertEqual(json.loads(complete.stdout)["comparison_status"], "complete")
+
+
 if __name__ == "__main__":
     unittest.main()
