@@ -507,6 +507,44 @@ class AuditTests(unittest.TestCase):
                     self.assertIn("unavailable", result)
 
 
+    def test_empty_valid_parquet_values_do_not_complete_comparison(self):
+        try:
+            import pandas as pd
+            import pyarrow  # noqa: F401
+        except ImportError:
+            self.skipTest("Optional parquet dependencies are unavailable")
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            empty = pd.DataFrame({
+                "site_id": pd.Series(dtype="int64"),
+                "ts": pd.Series(dtype="datetime64[ns]"),
+                "forecast": pd.Series(dtype="float64"),
+            })
+            for run_id, seed in (("P1", 0), ("P2", 1)):
+                folder = root / run_id
+                folder.mkdir()
+                (folder / "config.json").write_text(json.dumps({"seed": seed}), encoding="utf-8")
+                (folder / "manifest.json").write_text("{}", encoding="utf-8")
+                (folder / "result.json").write_text('{"metrics": {"W": 100}}', encoding="utf-8")
+                (folder / "model.pt").write_bytes(b"model")
+                empty.to_parquet(folder / "predictions.parquet", index=False)
+
+            result = subprocess.run(
+                [sys.executable, str(Path(__file__).resolve().parents[1] / "scripts" / "audit_run_provenance.py"),
+                 temp, "P1", "P2", "--compare-values"],
+                capture_output=True, text=True, check=False,
+            )
+            report = json.loads(result.stdout)
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(report["artifact_status"], "present")
+            self.assertEqual(report["comparison_status"], "incomplete")
+            self.assertEqual(report["unverified_value_pairs"], ["P1/P2"])
+            comparison = report["pairs"]["P1/P2"]["prediction_values"]
+            self.assertEqual(comparison["rows"], [0, 0])
+            self.assertIsNone(comparison["equal"])
+            self.assertIn("Empty prediction grid", comparison["unavailable"])
+
     def test_parquet_comparison_handles_reordered_rows_and_different_encoding(self):
         try:
             import pandas as pd
