@@ -288,6 +288,35 @@ class AuditTests(unittest.TestCase):
             self.assertIn("warning", pair)
 
 
+    def test_cross_file_data_hash_mismatch_requires_review(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for run_id, seed, file_name, data_hash in (
+                ("P1", 0, "config.json", "dataset-a"),
+                ("P2", 1, "manifest.json", "dataset-b"),
+            ):
+                folder = root / run_id
+                folder.mkdir()
+                metadata = {
+                    "config.json": {"seed": seed},
+                    "manifest.json": {},
+                    "result.json": {"metrics": {"W": 100}},
+                }
+                metadata[file_name]["data_hash"] = data_hash
+                for name, values in metadata.items():
+                    (folder / name).write_text(json.dumps(values), encoding="utf-8")
+                (folder / "predictions.parquet").write_bytes(run_id.encode())
+                (folder / "model.pt").write_bytes(run_id.encode())
+
+            report = audit(root, ["P1", "P2"])
+            self.assertEqual(report["pairs"]["P1/P2"]["provenance_differences"]["data_hash"], ["dataset-a", "dataset-b"])
+            self.assertEqual(report["consistency_status"], "review_required")
+
+            (root / "P2" / "manifest.json").write_text("{}", encoding="utf-8")
+            without_counterpart = audit(root, ["P1", "P2"])
+            self.assertNotIn("provenance_warning", without_counterpart["pairs"]["P1/P2"])
+            self.assertEqual(without_counterpart["consistency_status"], "no_flags")
+
     def test_changed_artifact_provenance_is_reported_without_guessing_missing_hashes(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
