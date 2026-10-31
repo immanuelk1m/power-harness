@@ -45,6 +45,14 @@ def w_value(value):
     return score if score is not None and isfinite(score) and score >= 0 else None
 
 
+def seed_id(value):
+    if type(value) is int and value >= 0:
+        return str(value)
+    if type(value) is str and value.isascii() and value.isdecimal() and (value == "0" or not value.startswith("0")):
+        return value
+    return None
+
+
 def inspect_run(root, run_id):
     folder = root / run_id
     files = {name: fingerprint(folder / name) for name in FILES}
@@ -158,16 +166,22 @@ def compare_values(left, right, expected_rows=None, expected_grid=None, referenc
 
 def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_rows=None, expected_grid=None, reference_grid=None, require_group_metrics=False, expected_seeds=None):
     runs = {run_id: inspect_run(root, run_id) for run_id in run_ids}
+    seed_ids = {run_id: seed_id(run["seed"]) for run_id, run in runs.items()}
     missing_seeds = [run_id for run_id, run in runs.items() if run["seed"] is None] if distinct_seeds else []
+    invalid_seeds = [
+        run_id for run_id, run in runs.items()
+        if run["seed"] is not None and seed_ids[run_id] is None
+    ] if distinct_seeds else []
     seeds = {}
     if distinct_seeds:
-        for run_id, run in runs.items():
-            if run["seed"] is not None:
-                seeds.setdefault(str(run["seed"]), []).append(run_id)
+        for run_id, seed in seed_ids.items():
+            if seed is not None:
+                seeds.setdefault(seed, []).append(run_id)
     duplicate_seeds = {seed: ids for seed, ids in seeds.items() if len(ids) > 1}
     expected_seed_set_matches = (
-        sorted(str(run["seed"]) for run in runs.values()) == sorted(str(seed) for seed in expected_seeds)
-        if expected_seeds is not None else None
+        sorted(seed_ids.values()) == sorted(str(seed) for seed in expected_seeds)
+        if expected_seeds is not None and all(seed is not None for seed in seed_ids.values())
+        else False if expected_seeds is not None else None
     )
     pairs = {}
     for left, right in combinations(run_ids, 2):
@@ -209,8 +223,8 @@ def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_r
         values_equal = pair.get("prediction_values", {}).get("equal") is True
         if (same_bytes or values_equal) and pair["W_delta"] is not None and not isclose(pair["W_delta"], 0, rel_tol=0, abs_tol=0.01):
             pair["warning"] = "Same prediction bytes or values but different W: verify labels, groups, SMP, evaluator and result paths."
-        if (distinct_seeds and a["seed"] is not None and b["seed"] is not None
-                and str(a["seed"]) != str(b["seed"])
+        if (distinct_seeds and seed_ids[left] is not None and seed_ids[right] is not None
+                and seed_ids[left] != seed_ids[right])
                 and (pair["model_bytes_equal"] or same_bytes or values_equal)):
             pair.setdefault("warning", "Different seeds share identical model or predictions: verify independent training.")
         pairs[left + "/" + right] = pair
@@ -240,7 +254,7 @@ def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_r
         for run_id, record in runs.items()
     }
     unreadable = {run_id: keys for run_id, keys in unreadable.items() if keys}
-    incomplete = bool(missing or unreadable_artifacts or empty_artifacts or missing_scores or missing_group_scores or invalid_group_scores or unreadable or missing_seeds or expected_seed_set_matches is False)
+    incomplete = bool(missing or unreadable_artifacts or empty_artifacts or missing_scores or missing_group_scores or invalid_group_scores or unreadable or missing_seeds or invalid_seeds or expected_seed_set_matches is False)
     unverified_pairs = [
         name for name, pair in pairs.items()
         if compare_parquet and not isinstance(pair.get("prediction_values", {}).get("equal"), bool)
@@ -265,6 +279,7 @@ def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_r
         "missing_scores": missing_scores,
         "missing_group_scores": missing_group_scores,
         "missing_seeds": missing_seeds,
+        "invalid_seeds": invalid_seeds,
         "duplicate_seeds": duplicate_seeds,
         "expected_seed_set_matches": expected_seed_set_matches,
         "invalid_group_scores": invalid_group_scores,
