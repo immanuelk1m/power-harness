@@ -629,5 +629,47 @@ class AuditTests(unittest.TestCase):
             self.assertEqual(json.loads(complete.stdout)["comparison_status"], "complete")
 
 
+    def test_expected_grid_requires_complete_site_hour_rectangle(self):
+        try:
+            import pandas as pd
+            import pyarrow  # noqa: F401
+        except ImportError:
+            self.skipTest("Optional parquet dependencies are unavailable")
+
+        with tempfile.TemporaryDirectory() as temp:
+            for run_id in ("P1", "P2"):
+                folder = Path(temp) / run_id
+                folder.mkdir()
+                (folder / "config.json").write_text("{}", encoding="utf-8")
+                (folder / "manifest.json").write_text("{}", encoding="utf-8")
+                (folder / "result.json").write_text('{"metrics": {"W": 100}}', encoding="utf-8")
+                (folder / "model.pt").write_bytes(b"model")
+                pd.DataFrame({"site_id": [1, 1, 1, 2], "ts": [1, 2, 3, 1], "forecast": [1, 2, 3, 4]}).to_parquet(
+                    folder / "predictions.parquet", index=False,
+                )
+
+            command = [
+                sys.executable, str(Path(__file__).resolve().parents[1] / "scripts" / "audit_run_provenance.py"),
+                temp, "P1", "P2", "--compare-values", "--expected-rows", "4", "--expected-grid", "2", "2",
+            ]
+            partial = subprocess.run(command, capture_output=True, text=True, check=False)
+            report = json.loads(partial.stdout)
+            self.assertEqual(partial.returncode, 2)
+            self.assertEqual(report["comparison_status"], "incomplete")
+            self.assertEqual(report["pairs"]["P1/P2"]["prediction_values"]["grid_dimensions"], [[2, 3], [2, 3]])
+
+            for run_id in ("P1", "P2"):
+                pd.DataFrame({"site_id": [1, 1, 2, 2], "ts": [1, 2, 1, 2], "forecast": [1, 2, 3, 4]}).to_parquet(
+                    Path(temp) / run_id / "predictions.parquet", index=False,
+                )
+            complete = subprocess.run(command, capture_output=True, text=True, check=False)
+            self.assertEqual(complete.returncode, 0)
+            self.assertEqual(json.loads(complete.stdout)["comparison_status"], "complete")
+
+            invalid = subprocess.run(command[:-7] + ["--expected-grid", "2", "2"], capture_output=True, text=True, check=False)
+            self.assertEqual(invalid.returncode, 2)
+            self.assertIn("requires --compare-values", invalid.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
