@@ -666,7 +666,7 @@ class AuditTests(unittest.TestCase):
             self.assertEqual(complete.returncode, 0)
             self.assertEqual(json.loads(complete.stdout)["comparison_status"], "complete")
 
-            invalid = subprocess.run(command[:-7] + ["--expected-grid", "2", "2"], capture_output=True, text=True, check=False)
+            invalid = subprocess.run(command[:5] + ["--expected-grid", "2", "2"], capture_output=True, text=True, check=False)
             self.assertEqual(invalid.returncode, 2)
             self.assertIn("requires --compare-values", invalid.stderr)
 
