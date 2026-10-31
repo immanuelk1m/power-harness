@@ -106,7 +106,7 @@ def inspect_run(root, run_id):
     return record
 
 
-def compare_values(left, right, expected_rows=None):
+def compare_values(left, right, expected_rows=None, expected_grid=None):
     try:
         import pandas as pd
 
@@ -121,6 +121,12 @@ def compare_values(left, right, expected_rows=None):
             return {**result, "equal": None, "unavailable": reason + ": cannot align prediction values reliably."}
         if expected_rows is not None and (len(a) != expected_rows or len(b) != expected_rows):
             return {**result, "equal": None, "unavailable": f"Expected {expected_rows} prediction rows per run."}
+        if expected_grid is not None:
+            sites, hours = expected_grid
+            dimensions = [[frame["site_id"].nunique(), frame["ts"].nunique()] for frame in (a, b)]
+            result["grid_dimensions"] = dimensions
+            if any(dims != [sites, hours] for dims in dimensions) or any(len(frame) != sites * hours for frame in (a, b)):
+                return {**result, "equal": None, "unavailable": f"Expected complete {sites}-site x {hours}-hour grid."}
         if not len(a) or not len(b):
             return {**result, "equal": None, "unavailable": "Empty prediction grid: cannot compare values reliably."}
         a = a.sort_values(keys).reset_index(drop=True)
@@ -134,7 +140,7 @@ def compare_values(left, right, expected_rows=None):
         return {"unavailable": str(error)}
 
 
-def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_rows=None):
+def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_rows=None, expected_grid=None):
     runs = {run_id: inspect_run(root, run_id) for run_id in run_ids}
     missing_seeds = [run_id for run_id, run in runs.items() if run["seed"] is None] if distinct_seeds else []
     seeds = {}
@@ -164,7 +170,7 @@ def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_r
         if differences:
             pair["provenance_differences"] = differences
         if compare_parquet and same_bytes is not None:
-            pair["prediction_values"] = compare_values(root / left / "predictions.parquet", root / right / "predictions.parquet", expected_rows)
+            pair["prediction_values"] = compare_values(root / left / "predictions.parquet", root / right / "predictions.parquet", expected_rows, expected_grid)
         values_equal = pair.get("prediction_values", {}).get("equal") is True
         if (same_bytes or values_equal) and pair["W_delta"] is not None and not isclose(pair["W_delta"], 0, rel_tol=0, abs_tol=0.01):
             pair["warning"] = "Same prediction bytes or values but different W: verify labels, groups, SMP, evaluator and result paths."
@@ -236,12 +242,18 @@ def main():
     parser.add_argument("--compare-values", action="store_true", help="Compare parquet values when bytes differ (requires pandas parquet engine)")
     parser.add_argument("--distinct-seeds", action="store_true", help="Require present, distinct config seeds across the audited runs")
     parser.add_argument("--expected-rows", type=int, help="Expected rows per Parquet file; requires --compare-values")
+    parser.add_argument("--expected-grid", type=int, nargs=2, metavar=("SITES", "HOURS"), help="Require a complete site-by-hour grid; requires --compare-values")
     args = parser.parse_args()
     if args.expected_rows is not None and (args.expected_rows < 1 or not args.compare_values):
         parser.error("--expected-rows must be positive and requires --compare-values")
+    if args.expected_grid is not None and (
+        not args.compare_values or min(args.expected_grid) < 1
+        or args.expected_rows is not None and args.expected_rows != args.expected_grid[0] * args.expected_grid[1]
+    ):
+        parser.error("--expected-grid requires --compare-values, positive dimensions, and consistent --expected-rows")
     if len(args.run_ids) != len(set(args.run_ids)) or any(Path(run_id).name != run_id or run_id in (".", "..") for run_id in args.run_ids):
         parser.error("Run IDs must be distinct directory names")
-    report = audit(args.runs_dir, args.run_ids, args.compare_values, args.distinct_seeds, args.expected_rows)
+    report = audit(args.runs_dir, args.run_ids, args.compare_values, args.distinct_seeds, args.expected_rows, args.expected_grid)
     print(json.dumps(report, ensure_ascii=False, indent=2))
     if report["artifact_status"] == "incomplete" or report["comparison_status"] == "incomplete":
         sys.exit(2)
