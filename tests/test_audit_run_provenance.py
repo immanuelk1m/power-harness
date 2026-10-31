@@ -300,11 +300,24 @@ class AuditTests(unittest.TestCase):
                     encoding="utf-8",
                 )
                 (folder / "result.json").write_text(json.dumps({"metrics": {"W": 100}}), encoding="utf-8")
+                (folder / "model.pt").write_bytes(run_id.encode())
+                (folder / "predictions.parquet").write_bytes(run_id.encode())
 
-            pair = audit(root, ["P1", "P2"])["pairs"]["P1/P2"]
+            report = audit(root, ["P1", "P2"])
+            pair = report["pairs"]["P1/P2"]
             self.assertEqual(pair["provenance_differences"], {"manifest.json.data_hash": ["dataset-a", "dataset-b"]})
-            self.assertIsNone(pair["prediction_bytes_equal"])
-            self.assertNotIn("warning", pair)
+            self.assertFalse(pair["prediction_bytes_equal"])
+            self.assertIn("data/protocol hashes", pair["provenance_warning"])
+            self.assertEqual(report["artifact_status"], "present")
+            self.assertEqual(report["consistency_status"], "review_required")
+            self.assertEqual(report["consistency_warnings"], ["P1/P2"])
+
+            result = subprocess.run(
+                [sys.executable, str(Path(__file__).resolve().parents[1] / "scripts" / "audit_run_provenance.py"),
+                 temp, "P1", "P2"],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(result.returncode, 3)
 
 
     def test_missing_run_artifacts_fail_cli_without_evaluating(self):
