@@ -119,6 +119,8 @@ def compare_values(left, right):
             reason = ("Missing site_id/ts keys" if len(keys) != 2 else
                       "Duplicate site_id/ts keys" if any(duplicates) else "Null site_id/ts keys")
             return {**result, "equal": None, "unavailable": reason + ": cannot align prediction values reliably."}
+        if not len(a) or not len(b):
+            return {**result, "equal": None, "unavailable": "Empty prediction grid: cannot compare values reliably."}
         if set(a.columns) == set(b.columns):
             b = b[a.columns]
         a = a.sort_values(keys).reset_index(drop=True)
