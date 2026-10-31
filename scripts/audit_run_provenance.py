@@ -173,6 +173,10 @@ def compare_values(left, right, expected_rows=None, expected_grid=None, referenc
 
 def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_rows=None, expected_grid=None, reference_grid=None, require_group_metrics=False, expected_seeds=None, match_seed_order=False, require_provenance_hashes=False, prediction_column=None):
     reference_info = fingerprint(reference_grid) if reference_grid is not None else None
+    reference_alias = reference_grid is not None and any(
+        reference_grid.resolve() == (root / run_id / "predictions.parquet").resolve()
+        for run_id in run_ids
+    )
     runs = {run_id: inspect_run(root, run_id) for run_id in run_ids}
     seed_ids = {run_id: seed_id(run["seed"]) for run_id, run in runs.items()}
     missing_seeds = [run_id for run_id, run in runs.items() if run["seed"] is None] if distinct_seeds else []
@@ -293,12 +297,12 @@ def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_r
         for run_id, record in runs.items()
     }
     unreadable = {run_id: keys for run_id, keys in unreadable.items() if keys}
-    incomplete = bool(missing or unreadable_artifacts or empty_artifacts or missing_scores or missing_group_scores or invalid_group_scores or unreadable or missing_seeds or invalid_seeds or missing_provenance_hashes or expected_seed_set_matches is False or expected_seed_order_matches is False or reference_changed)
+    incomplete = bool(missing or unreadable_artifacts or empty_artifacts or missing_scores or missing_group_scores or invalid_group_scores or unreadable or missing_seeds or invalid_seeds or missing_provenance_hashes or expected_seed_set_matches is False or expected_seed_order_matches is False or reference_changed or reference_alias)
     unverified_pairs = [
         name for name, pair in pairs.items()
         if compare_parquet and not isinstance(pair.get("prediction_values", {}).get("equal"), bool)
     ]
-    if reference_changed:
+    if reference_changed or reference_alias:
         unverified_pairs = list(pairs)
     flagged = [
         name for name, run in runs.items()
@@ -316,6 +320,7 @@ def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_r
         "unverified_value_pairs": unverified_pairs,
         "reference_grid_fingerprint": reference_info,
         "reference_grid_stable": not reference_changed if reference_info is not None else None,
+        "reference_grid_path_distinct": not reference_alias if reference_info is not None else None,
         "missing_artifacts": missing,
         "unreadable_artifacts": unreadable_artifacts,
         "empty_artifacts": empty_artifacts,
