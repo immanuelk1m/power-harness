@@ -173,8 +173,9 @@ def compare_values(left, right, expected_rows=None, expected_grid=None, referenc
 
 def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_rows=None, expected_grid=None, reference_grid=None, require_group_metrics=False, expected_seeds=None, match_seed_order=False, require_provenance_hashes=False, prediction_column=None):
     reference_info = fingerprint(reference_grid) if reference_grid is not None else None
-    reference_alias = reference_grid is not None and any(
-        reference_grid.resolve() == (root / run_id / "predictions.parquet").resolve()
+    reference_alias = reference_grid is not None and reference_grid.exists() and any(
+        (root / run_id / "predictions.parquet").exists()
+        and reference_grid.samefile(root / run_id / "predictions.parquet")
         for run_id in run_ids
     )
     runs = {run_id: inspect_run(root, run_id) for run_id in run_ids}
