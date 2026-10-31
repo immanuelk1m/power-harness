@@ -951,5 +951,24 @@ class AuditTests(unittest.TestCase):
             self.assertEqual(json.loads(valid.stdout)["missing_group_scores"], [])
 
 
+    def test_boolean_only_parquet_columns_do_not_count_as_predictions(self):
+        import pandas as pd
+
+        with tempfile.TemporaryDirectory() as temp:
+            left = Path(temp) / "left.parquet"
+            right = Path(temp) / "right.parquet"
+            keys = {"site_id": ["PV001"], "ts": ["2025-01-01 01:00"]}
+            pd.DataFrame({**keys, "is_valid": [True]}).to_parquet(left)
+            pd.DataFrame({**keys, "is_valid": [True]}).to_parquet(right)
+
+            invalid = compare_values(left, right)
+            self.assertIsNone(invalid["equal"])
+            self.assertIn("No numeric prediction values", invalid["unavailable"])
+
+            pd.DataFrame({**keys, "is_valid": [True], "prediction": [1.0]}).to_parquet(left)
+            pd.DataFrame({**keys, "is_valid": [True], "prediction": [1.0]}).to_parquet(right)
+            self.assertTrue(compare_values(left, right)["equal"])
+
+
 if __name__ == "__main__":
     unittest.main()
