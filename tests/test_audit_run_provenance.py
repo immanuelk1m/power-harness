@@ -1118,5 +1118,51 @@ class AuditTests(unittest.TestCase):
 
 
 
+    def test_named_prediction_column_ignores_unrelated_parquet_fields(self):
+        import pandas as pd
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            left = pd.DataFrame({
+                "site_id": ["PV001", "PV002"], "ts": [1, 1],
+                "prediction": [10.0, 20.0], "row_index": [0, 1],
+            })
+            right = pd.DataFrame({
+                "site_id": ["PV002", "PV001"], "ts": [1, 1],
+                "prediction": [20.0, 10.0], "row_index": [99, 98],
+                "quality": ["ok", "ok"],
+            })
+            for run_id, frame, score in (("P1", left, 100), ("P2", right, 120)):
+                folder = root / run_id
+                folder.mkdir()
+                (folder / "config.json").write_text("{}", encoding="utf-8")
+                (folder / "manifest.json").write_text("{}", encoding="utf-8")
+                (folder / "result.json").write_text(
+                    json.dumps({"metrics": {"W": score}}), encoding="utf-8",
+                )
+                (folder / "model.pt").write_bytes(run_id.encode())
+                frame.to_parquet(folder / "predictions.parquet", index=False)
+
+            a, b = (root / run_id / "predictions.parquet" for run_id in ("P1", "P2"))
+            self.assertIsNone(compare_values(a, b)["equal"])
+            self.assertTrue(compare_values(a, b, prediction_column="prediction")["equal"])
+
+            script = Path(__file__).resolve().parents[1] / "scripts" / "audit_run_provenance.py"
+            result = subprocess.run(
+                [sys.executable, str(script), temp, "P1", "P2", "--compare-values",
+                 "--prediction-column", "prediction"],
+                capture_output=True, text=True, check=False,
+            )
+            report = json.loads(result.stdout)
+            self.assertEqual(result.returncode, 3)
+            self.assertEqual(report["comparison_status"], "complete")
+            self.assertTrue(report["pairs"]["P1/P2"]["prediction_values"]["equal"])
+            self.assertEqual(report["consistency_status"], "review_required")
+
+            right.loc[0, "prediction"] = 21.0
+            right.to_parquet(b, index=False)
+            self.assertFalse(compare_values(a, b, prediction_column="prediction")["equal"])
+
+
 if __name__ == "__main__":
     unittest.main()
