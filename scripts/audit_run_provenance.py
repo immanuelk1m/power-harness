@@ -167,7 +167,7 @@ def compare_values(left, right, expected_rows=None, expected_grid=None, referenc
         return {"unavailable": str(error)}
 
 
-def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_rows=None, expected_grid=None, reference_grid=None, require_group_metrics=False, expected_seeds=None, match_seed_order=False):
+def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_rows=None, expected_grid=None, reference_grid=None, require_group_metrics=False, expected_seeds=None, match_seed_order=False, require_provenance_hashes=False):
     reference_info = fingerprint(reference_grid) if reference_grid is not None else None
     runs = {run_id: inspect_run(root, run_id) for run_id in run_ids}
     seed_ids = {run_id: seed_id(run["seed"]) for run_id, run in runs.items()}
@@ -191,6 +191,19 @@ def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_r
         [seed_ids[run_id] for run_id in run_ids] == [str(seed) for seed in expected_seeds]
         if match_seed_order and expected_seeds is not None else None
     )
+    missing_provenance_hashes = {}
+    if require_provenance_hashes:
+        for run_id, record in runs.items():
+            metadata = [
+                record.get(name + "_provenance", {})
+                for name in ("config.json", "manifest.json", "result.json")
+            ]
+            absent = [
+                key for key in ("data_hash", "protocol_hash")
+                if not any(isinstance(item.get(key), str) and item[key].strip() for item in metadata)
+            ]
+            if absent:
+                missing_provenance_hashes[run_id] = absent
     pairs = {}
     for left, right in combinations(run_ids, 2):
         a, b = runs[left], runs[right]
@@ -270,7 +283,7 @@ def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_r
         for run_id, record in runs.items()
     }
     unreadable = {run_id: keys for run_id, keys in unreadable.items() if keys}
-    incomplete = bool(missing or unreadable_artifacts or empty_artifacts or missing_scores or missing_group_scores or invalid_group_scores or unreadable or missing_seeds or invalid_seeds or expected_seed_set_matches is False or expected_seed_order_matches is False or reference_changed)
+    incomplete = bool(missing or unreadable_artifacts or empty_artifacts or missing_scores or missing_group_scores or invalid_group_scores or unreadable or missing_seeds or invalid_seeds or missing_provenance_hashes or expected_seed_set_matches is False or expected_seed_order_matches is False or reference_changed)
     unverified_pairs = [
         name for name, pair in pairs.items()
         if compare_parquet and not isinstance(pair.get("prediction_values", {}).get("equal"), bool)
@@ -297,6 +310,7 @@ def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_r
         "unreadable_artifacts": unreadable_artifacts,
         "empty_artifacts": empty_artifacts,
         "missing_scores": missing_scores,
+        "missing_provenance_hashes": missing_provenance_hashes,
         "missing_group_scores": missing_group_scores,
         "missing_seeds": missing_seeds,
         "invalid_seeds": invalid_seeds,
@@ -316,6 +330,7 @@ def main():
     parser.add_argument("--compare-values", action="store_true", help="Compare parquet values when bytes differ (requires pandas parquet engine)")
     parser.add_argument("--distinct-seeds", action="store_true", help="Require present, distinct config seeds across the audited runs")
     parser.add_argument("--require-group-metrics", action="store_true", help="Require valid G1 and G2 W scores in each result.json")
+    parser.add_argument("--require-provenance-hashes", action="store_true", help="Require nonempty data_hash and protocol_hash in each run metadata")
     parser.add_argument("--expected-seeds", nargs="+", type=int, help="Expected independent seed IDs; requires --distinct-seeds")
     parser.add_argument("--match-seed-order", action="store_true", help="Match --expected-seeds to run IDs in the supplied order")
     parser.add_argument("--expected-rows", type=int, help="Expected rows per Parquet file; requires --compare-values")
@@ -342,7 +357,7 @@ def main():
         parser.error("--reference-grid requires --compare-values and at least two run IDs")
     if len(args.run_ids) != len(set(args.run_ids)) or any(Path(run_id).name != run_id or run_id in (".", "..") for run_id in args.run_ids):
         parser.error("Run IDs must be distinct directory names")
-    report = audit(args.runs_dir, args.run_ids, args.compare_values, args.distinct_seeds, args.expected_rows, args.expected_grid, args.reference_grid, args.require_group_metrics, args.expected_seeds, args.match_seed_order)
+    report = audit(args.runs_dir, args.run_ids, args.compare_values, args.distinct_seeds, args.expected_rows, args.expected_grid, args.reference_grid, args.require_group_metrics, args.expected_seeds, args.match_seed_order, args.require_provenance_hashes)
     print(json.dumps(report, ensure_ascii=False, indent=2))
     if report["artifact_status"] == "incomplete" or report["comparison_status"] == "incomplete":
         sys.exit(2)
