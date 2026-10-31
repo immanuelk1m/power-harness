@@ -507,6 +507,31 @@ class AuditTests(unittest.TestCase):
                     self.assertIn("unavailable", result)
 
 
+    def test_prediction_values_require_numeric_finite_matching_columns(self):
+        try:
+            import pandas as pd
+        except ImportError:
+            self.skipTest("Optional pandas dependency is unavailable")
+
+        valid = pd.DataFrame({"site_id": [1, 2], "ts": [1, 1], "forecast": [1.0, 2.0]})
+        cases = (
+            (valid[["site_id", "ts"]], valid[["site_id", "ts"]], "Missing or mismatched"),
+            (valid, valid.rename(columns={"forecast": "other"}), "Missing or mismatched"),
+            (valid.assign(forecast=["1", "2"]), valid.assign(forecast=["1", "2"]), "No numeric"),
+            (valid.assign(forecast=[1.0, float("nan")]), valid, "Non-finite"),
+            (valid, valid.assign(forecast=[1.0, float("inf")]), "Non-finite"),
+        )
+        for left, right, reason in cases:
+            with self.subTest(reason=reason, columns=list(left.columns)):
+                with patch("pandas.read_parquet", side_effect=[left, right]):
+                    comparison = compare_values("left.parquet", "right.parquet")
+                self.assertIsNone(comparison["equal"])
+                self.assertIn(reason, comparison["unavailable"])
+
+        with patch("pandas.read_parquet", side_effect=[valid, valid.copy()]):
+            self.assertTrue(compare_values("left.parquet", "right.parquet")["equal"])
+
+
     def test_empty_valid_parquet_values_do_not_complete_comparison(self):
         try:
             import pandas as pd
