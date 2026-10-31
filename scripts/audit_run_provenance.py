@@ -164,7 +164,7 @@ def compare_values(left, right, expected_rows=None, expected_grid=None, referenc
         return {"unavailable": str(error)}
 
 
-def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_rows=None, expected_grid=None, reference_grid=None, require_group_metrics=False, expected_seeds=None):
+def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_rows=None, expected_grid=None, reference_grid=None, require_group_metrics=False, expected_seeds=None, match_seed_order=False):
     runs = {run_id: inspect_run(root, run_id) for run_id in run_ids}
     seed_ids = {run_id: seed_id(run["seed"]) for run_id, run in runs.items()}
     missing_seeds = [run_id for run_id, run in runs.items() if run["seed"] is None] if distinct_seeds else []
@@ -182,6 +182,10 @@ def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_r
         sorted(seed_ids.values()) == sorted(str(seed) for seed in expected_seeds)
         if expected_seeds is not None and all(seed is not None for seed in seed_ids.values())
         else False if expected_seeds is not None else None
+    )
+    expected_seed_order_matches = (
+        [seed_ids[run_id] for run_id in run_ids] == [str(seed) for seed in expected_seeds]
+        if match_seed_order and expected_seeds is not None else None
     )
     pairs = {}
     for left, right in combinations(run_ids, 2):
@@ -254,7 +258,7 @@ def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_r
         for run_id, record in runs.items()
     }
     unreadable = {run_id: keys for run_id, keys in unreadable.items() if keys}
-    incomplete = bool(missing or unreadable_artifacts or empty_artifacts or missing_scores or missing_group_scores or invalid_group_scores or unreadable or missing_seeds or invalid_seeds or expected_seed_set_matches is False)
+    incomplete = bool(missing or unreadable_artifacts or empty_artifacts or missing_scores or missing_group_scores or invalid_group_scores or unreadable or missing_seeds or invalid_seeds or expected_seed_set_matches is False or expected_seed_order_matches is False)
     unverified_pairs = [
         name for name, pair in pairs.items()
         if compare_parquet and not isinstance(pair.get("prediction_values", {}).get("equal"), bool)
@@ -282,6 +286,7 @@ def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_r
         "invalid_seeds": invalid_seeds,
         "duplicate_seeds": duplicate_seeds,
         "expected_seed_set_matches": expected_seed_set_matches,
+        "expected_seed_order_matches": expected_seed_order_matches,
         "invalid_group_scores": invalid_group_scores,
         "unreadable_json": unreadable,
         "note": "No evaluator was called; no protected score was recomputed. Artifact presence does not prove evaluation-input identity.",
@@ -296,6 +301,7 @@ def main():
     parser.add_argument("--distinct-seeds", action="store_true", help="Require present, distinct config seeds across the audited runs")
     parser.add_argument("--require-group-metrics", action="store_true", help="Require valid G1 and G2 W scores in each result.json")
     parser.add_argument("--expected-seeds", nargs="+", type=int, help="Expected independent seed IDs; requires --distinct-seeds")
+    parser.add_argument("--match-seed-order", action="store_true", help="Match --expected-seeds to run IDs in the supplied order")
     parser.add_argument("--expected-rows", type=int, help="Expected rows per Parquet file; requires --compare-values")
     parser.add_argument("--expected-grid", type=int, nargs=2, metavar=("SITES", "HOURS"), help="Require a complete site-by-hour grid; requires --compare-values")
     parser.add_argument("--reference-grid", type=Path, help="Parquet file with official site_id/ts keys; requires --compare-values and two runs")
@@ -307,6 +313,8 @@ def main():
         or len(set(args.expected_seeds)) != len(args.expected_seeds) or min(args.expected_seeds) < 0
     ):
         parser.error("--expected-seeds requires --distinct-seeds and one unique nonnegative seed per run")
+    if args.match_seed_order and args.expected_seeds is None:
+        parser.error("--match-seed-order requires --expected-seeds")
     if args.expected_rows is not None and (args.expected_rows < 1 or not args.compare_values):
         parser.error("--expected-rows must be positive and requires --compare-values")
     if args.expected_grid is not None and (
@@ -318,7 +326,7 @@ def main():
         parser.error("--reference-grid requires --compare-values and at least two run IDs")
     if len(args.run_ids) != len(set(args.run_ids)) or any(Path(run_id).name != run_id or run_id in (".", "..") for run_id in args.run_ids):
         parser.error("Run IDs must be distinct directory names")
-    report = audit(args.runs_dir, args.run_ids, args.compare_values, args.distinct_seeds, args.expected_rows, args.expected_grid, args.reference_grid, args.require_group_metrics, args.expected_seeds)
+    report = audit(args.runs_dir, args.run_ids, args.compare_values, args.distinct_seeds, args.expected_rows, args.expected_grid, args.reference_grid, args.require_group_metrics, args.expected_seeds, args.match_seed_order)
     print(json.dumps(report, ensure_ascii=False, indent=2))
     if report["artifact_status"] == "incomplete" or report["comparison_status"] == "incomplete":
         sys.exit(2)
