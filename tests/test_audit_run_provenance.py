@@ -43,6 +43,41 @@ class AuditTests(unittest.TestCase):
             self.assertEqual(valid["artifact_status"], "present")
             self.assertEqual(valid["consistency_status"], "no_flags")
 
+    def test_distinct_seeds_rejects_malformed_seed_metadata(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for run_id, seed in (("P1", 0), ("P2", 1)):
+                folder = root / run_id
+                folder.mkdir()
+                (folder / "config.json").write_text(json.dumps({"seed": seed}), encoding="utf-8")
+                (folder / "manifest.json").write_text("{}", encoding="utf-8")
+                (folder / "result.json").write_text('{"metrics": {"W": 100}}', encoding="utf-8")
+                (folder / "predictions.parquet").write_bytes(run_id.encode())
+                (folder / "model.pt").write_bytes(run_id.encode())
+
+            for invalid_seed in (True, -1, 1.5, "01", "seed-1"):
+                with self.subTest(seed=invalid_seed):
+                    (root / "P2" / "config.json").write_text(
+                        json.dumps({"seed": invalid_seed}), encoding="utf-8",
+                    )
+                    report = audit(root, ["P1", "P2"], distinct_seeds=True)
+                    self.assertEqual(report["invalid_seeds"], ["P2"])
+                    self.assertEqual(report["artifact_status"], "incomplete")
+
+            script = Path(__file__).resolve().parents[1] / "scripts" / "audit_run_provenance.py"
+            failed = subprocess.run(
+                [sys.executable, str(script), temp, "P1", "P2", "--distinct-seeds"],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(failed.returncode, 2)
+            self.assertEqual(json.loads(failed.stdout)["invalid_seeds"], ["P2"])
+
+            (root / "P2" / "config.json").write_text('{"seed": "1"}', encoding="utf-8")
+            valid = audit(root, ["P1", "P2"], distinct_seeds=True, expected_seeds=[0, 1])
+            self.assertEqual(valid["invalid_seeds"], [])
+            self.assertTrue(valid["expected_seed_set_matches"])
+            self.assertEqual(valid["artifact_status"], "present")
+
     def test_expected_seed_set_rejects_wrong_or_missing_declared_seeds(self):
         with tempfile.TemporaryDirectory() as temp:
             for run_id, seed in (("P1", 0), ("P2", 1), ("P3", 2)):
