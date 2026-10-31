@@ -1075,5 +1075,48 @@ class AuditTests(unittest.TestCase):
 
 
 
+    def test_named_prediction_column_rejects_numeric_auxiliary_only(self):
+        import pandas as pd
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for run_id in ("P1", "P2"):
+                folder = root / run_id
+                folder.mkdir()
+                (folder / "config.json").write_text("{}", encoding="utf-8")
+                (folder / "manifest.json").write_text("{}", encoding="utf-8")
+                (folder / "result.json").write_text('{"metrics": {"W": 100}}', encoding="utf-8")
+                (folder / "model.pt").write_bytes(run_id.encode())
+                pd.DataFrame({
+                    "site_id": ["PV001"], "ts": ["2025-01-01 01:00"], "row_index": [1],
+                }).to_parquet(folder / "predictions.parquet")
+
+            script = Path(__file__).resolve().parents[1] / "scripts" / "audit_run_provenance.py"
+            command = [sys.executable, str(script), temp, "P1", "P2", "--compare-values"]
+            legacy = subprocess.run(command, capture_output=True, text=True, check=False)
+            self.assertEqual(legacy.returncode, 0)
+
+            required = [*command, "--prediction-column", "prediction"]
+            missing = subprocess.run(required, capture_output=True, text=True, check=False)
+            self.assertEqual(missing.returncode, 2)
+            self.assertEqual(json.loads(missing.stdout)["comparison_status"], "incomplete")
+
+            for run_id in ("P1", "P2"):
+                pd.DataFrame({
+                    "site_id": ["PV001"], "ts": ["2025-01-01 01:00"],
+                    "row_index": [1], "prediction": [10.0],
+                }).to_parquet(root / run_id / "predictions.parquet")
+            valid = subprocess.run(required, capture_output=True, text=True, check=False)
+            self.assertEqual(valid.returncode, 0)
+
+            invalid = subprocess.run(
+                [sys.executable, str(script), temp, "P1", "P2", "--prediction-column", "prediction"],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(invalid.returncode, 2)
+            self.assertIn("requires --compare-values", invalid.stderr)
+
+
+
 if __name__ == "__main__":
     unittest.main()
