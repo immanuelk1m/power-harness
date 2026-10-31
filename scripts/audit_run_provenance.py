@@ -156,7 +156,7 @@ def compare_values(left, right, expected_rows=None, expected_grid=None, referenc
         return {"unavailable": str(error)}
 
 
-def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_rows=None, expected_grid=None, reference_grid=None):
+def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_rows=None, expected_grid=None, reference_grid=None, require_group_metrics=False):
     runs = {run_id: inspect_run(root, run_id) for run_id in run_ids}
     missing_seeds = [run_id for run_id, run in runs.items() if run["seed"] is None] if distinct_seeds else []
     seeds = {}
@@ -211,6 +211,7 @@ def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_r
     }
     empty_artifacts = {run_id: names for run_id, names in empty_artifacts.items() if names}
     missing_scores = [run_id for run_id, record in runs.items() if record["W"] is None]
+    missing_group_scores = [run_id for run_id, record in runs.items() if record["group_W"] is None] if require_group_metrics else []
     invalid_group_scores = {
         run_id: record["invalid_group_scores"]
         for run_id, record in runs.items() if "invalid_group_scores" in record
@@ -220,7 +221,7 @@ def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_r
         for run_id, record in runs.items()
     }
     unreadable = {run_id: keys for run_id, keys in unreadable.items() if keys}
-    incomplete = bool(missing or unreadable_artifacts or empty_artifacts or missing_scores or invalid_group_scores or unreadable or missing_seeds)
+    incomplete = bool(missing or unreadable_artifacts or empty_artifacts or missing_scores or missing_group_scores or invalid_group_scores or unreadable or missing_seeds)
     unverified_pairs = [
         name for name, pair in pairs.items()
         if compare_parquet and not isinstance(pair.get("prediction_values", {}).get("equal"), bool)
@@ -243,6 +244,7 @@ def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_r
         "unreadable_artifacts": unreadable_artifacts,
         "empty_artifacts": empty_artifacts,
         "missing_scores": missing_scores,
+        "missing_group_scores": missing_group_scores,
         "missing_seeds": missing_seeds,
         "duplicate_seeds": duplicate_seeds,
         "invalid_group_scores": invalid_group_scores,
@@ -257,6 +259,7 @@ def main():
     parser.add_argument("run_ids", nargs="+", help="Existing run directory names")
     parser.add_argument("--compare-values", action="store_true", help="Compare parquet values when bytes differ (requires pandas parquet engine)")
     parser.add_argument("--distinct-seeds", action="store_true", help="Require present, distinct config seeds across the audited runs")
+    parser.add_argument("--require-group-metrics", action="store_true", help="Require valid G1 and G2 W scores in each result.json")
     parser.add_argument("--expected-rows", type=int, help="Expected rows per Parquet file; requires --compare-values")
     parser.add_argument("--expected-grid", type=int, nargs=2, metavar=("SITES", "HOURS"), help="Require a complete site-by-hour grid; requires --compare-values")
     parser.add_argument("--reference-grid", type=Path, help="Parquet file with official site_id/ts keys; requires --compare-values and two runs")
@@ -274,7 +277,7 @@ def main():
         parser.error("--reference-grid requires --compare-values and at least two run IDs")
     if len(args.run_ids) != len(set(args.run_ids)) or any(Path(run_id).name != run_id or run_id in (".", "..") for run_id in args.run_ids):
         parser.error("Run IDs must be distinct directory names")
-    report = audit(args.runs_dir, args.run_ids, args.compare_values, args.distinct_seeds, args.expected_rows, args.expected_grid, args.reference_grid)
+    report = audit(args.runs_dir, args.run_ids, args.compare_values, args.distinct_seeds, args.expected_rows, args.expected_grid, args.reference_grid, args.require_group_metrics)
     print(json.dumps(report, ensure_ascii=False, indent=2))
     if report["artifact_status"] == "incomplete" or report["comparison_status"] == "incomplete":
         sys.exit(2)
