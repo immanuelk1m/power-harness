@@ -10,7 +10,7 @@ from unittest.mock import patch
 from sys import path
 
 path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from audit_run_provenance import audit, compare_values, fingerprint  # noqa: E402
+from audit_run_provenance import audit, compare_values, fingerprint, inspect_run  # noqa: E402
 
 
 class AuditTests(unittest.TestCase):
@@ -1162,6 +1162,33 @@ class AuditTests(unittest.TestCase):
             right.loc[0, "prediction"] = 21.0
             right.to_parquet(b, index=False)
             self.assertFalse(compare_values(a, b, prediction_column="prediction")["equal"])
+
+
+    def test_model_rewritten_after_inspection_is_incomplete(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for run_id in ("P1", "P2"):
+                folder = root / run_id
+                folder.mkdir()
+                (folder / "config.json").write_text("{}", encoding="utf-8")
+                (folder / "manifest.json").write_text("{}", encoding="utf-8")
+                (folder / "result.json").write_text('{"metrics": {"W": 100}}', encoding="utf-8")
+                (folder / "predictions.parquet").write_bytes(run_id.encode())
+                (folder / "model.pt").write_bytes(b"original")
+
+            self.assertEqual(audit(root, ["P1", "P2"])["artifact_status"], "present")
+
+            def rewrite_after_inspection(folder, run_id):
+                record = inspect_run(folder, run_id)
+                if run_id == "P2":
+                    (folder / "P1" / "model.pt").write_bytes(b"rewritten")
+                return record
+
+            with patch("audit_run_provenance.inspect_run", side_effect=rewrite_after_inspection):
+                report = audit(root, ["P1", "P2"])
+            self.assertEqual(report["artifact_status"], "incomplete")
+            self.assertEqual(report["unreadable_artifacts"], {"P1": ["model.pt"]})
+            self.assertIn("changed during audit", report["runs"]["P1"]["files"]["model.pt"]["unreadable"].lower())
 
 
 if __name__ == "__main__":
