@@ -224,7 +224,7 @@ def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_r
         if (same_bytes or values_equal) and pair["W_delta"] is not None and not isclose(pair["W_delta"], 0, rel_tol=0, abs_tol=0.01):
             pair["warning"] = "Same prediction bytes or values but different W: verify labels, groups, SMP, evaluator and result paths."
         if (distinct_seeds and seed_ids[left] is not None and seed_ids[right] is not None
-                and seed_ids[left] != seed_ids[right])
+                and seed_ids[left] != seed_ids[right]
                 and (pair["model_bytes_equal"] or same_bytes or values_equal)):
             pair.setdefault("warning", "Different seeds share identical model or predictions: verify independent training.")
         pairs[left + "/" + right] = pair
