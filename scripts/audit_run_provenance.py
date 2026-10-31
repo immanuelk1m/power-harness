@@ -226,7 +226,11 @@ def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_r
             if any(key.endswith((".data_hash", ".protocol_hash")) or key in ("data_hash", "protocol_hash") for key in differences):
                 pair["provenance_warning"] = "Different data/protocol hashes: verify evaluation-input identity."
         if compare_parquet and same_bytes is not None:
-            pair["prediction_values"] = compare_values(root / left / "predictions.parquet", root / right / "predictions.parquet", expected_rows, expected_grid, reference_grid)
+            paths = (root / left / "predictions.parquet", root / right / "predictions.parquet")
+            pair["prediction_values"] = compare_values(*paths, expected_rows, expected_grid, reference_grid)
+            if any(fingerprint(path).get("sha256") != info["sha256"] for path, info in zip(paths, (pred_a, pred_b))):
+                pair["prediction_values"] = {"unavailable": "Prediction artifact changed during value comparison."}
+                pair["prediction_bytes_equal"] = None
         values_equal = pair.get("prediction_values", {}).get("equal") is True
         if (same_bytes or values_equal) and pair["W_delta"] is not None and not isclose(pair["W_delta"], 0, rel_tol=0, abs_tol=0.01):
             pair["warning"] = "Same prediction bytes or values but different W: verify labels, groups, SMP, evaluator and result paths."
