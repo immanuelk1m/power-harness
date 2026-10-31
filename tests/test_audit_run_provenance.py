@@ -355,6 +355,43 @@ class AuditTests(unittest.TestCase):
             self.assertIn("warning", pair)
 
 
+    def test_cross_file_source_cache_hash_mismatch_requires_review(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for run_id, seed, filename, suffix in (
+                ("P1", 0, "config.json", "a"),
+                ("P2", 1, "manifest.json", "b"),
+            ):
+                folder = root / run_id
+                folder.mkdir()
+                metadata = {
+                    "config.json": {"seed": seed},
+                    "manifest.json": {},
+                    "result.json": {"metrics": {"W": 100}},
+                }
+                metadata[filename].update({
+                    "source_hash": "source-" + suffix,
+                    "cache_hash": "cache-" + suffix,
+                })
+                for name, values in metadata.items():
+                    (folder / name).write_text(json.dumps(values), encoding="utf-8")
+                (folder / "predictions.parquet").write_bytes(run_id.encode())
+                (folder / "model.pt").write_bytes(run_id.encode())
+
+            report = audit(root, ["P1", "P2"])
+            pair = report["pairs"]["P1/P2"]
+            self.assertEqual(pair["provenance_differences"], {
+                "source_hash": ["source-a", "source-b"],
+                "cache_hash": ["cache-a", "cache-b"],
+            })
+            self.assertIn("source/cache", pair["provenance_warning"])
+            self.assertEqual(report["consistency_status"], "review_required")
+
+            (root / "P2" / "manifest.json").write_text("{}", encoding="utf-8")
+            without_counterpart = audit(root, ["P1", "P2"])
+            self.assertNotIn("provenance_warning", without_counterpart["pairs"]["P1/P2"])
+            self.assertEqual(without_counterpart["consistency_status"], "no_flags")
+
     def test_cross_file_data_hash_mismatch_requires_review(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
