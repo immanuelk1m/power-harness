@@ -1277,6 +1277,35 @@ class AuditTests(unittest.TestCase):
             self.assertEqual(valid.returncode, 0)
             self.assertTrue(json.loads(valid.stdout)["reference_grid_path_distinct"])
 
+            trusted_hash = fingerprint(official)["sha256"]
+            verified = subprocess.run(
+                [*command, "--reference-grid", str(official),
+                 "--reference-sha256", trusted_hash],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(verified.returncode, 0)
+            self.assertTrue(json.loads(verified.stdout)["reference_grid_hash_matches"])
+
+            mismatched = subprocess.run(
+                [*command, "--reference-grid", str(official),
+                 "--reference-sha256", "0" * 64],
+                capture_output=True, text=True, check=False,
+            )
+            report = json.loads(mismatched.stdout)
+            self.assertEqual(mismatched.returncode, 2)
+            self.assertFalse(report["reference_grid_hash_matches"])
+            self.assertEqual(report["comparison_status"], "incomplete")
+
+            for invalid_args in (
+                ["--reference-grid", str(official), "--reference-sha256", "invalid"],
+                ["--reference-sha256", trusted_hash],
+            ):
+                invalid = subprocess.run(
+                    [*command, *invalid_args], capture_output=True, text=True, check=False,
+                )
+                self.assertEqual(invalid.returncode, 2)
+                self.assertIn("--reference-sha256 requires", invalid.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
