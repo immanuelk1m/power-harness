@@ -43,6 +43,43 @@ class AuditTests(unittest.TestCase):
             self.assertEqual(valid["artifact_status"], "present")
             self.assertEqual(valid["consistency_status"], "no_flags")
 
+    def test_expected_seed_set_rejects_wrong_or_missing_declared_seeds(self):
+        with tempfile.TemporaryDirectory() as temp:
+            for run_id, seed in (("P1", 0), ("P2", 1), ("P3", 2)):
+                folder = Path(temp) / run_id
+                folder.mkdir()
+                (folder / "config.json").write_text(json.dumps({"seed": seed}), encoding="utf-8")
+                (folder / "manifest.json").write_text("{}", encoding="utf-8")
+                (folder / "result.json").write_text('{"metrics": {"W": 100}}', encoding="utf-8")
+                (folder / "predictions.parquet").write_bytes(run_id.encode())
+                (folder / "model.pt").write_bytes(run_id.encode())
+
+            script = Path(__file__).resolve().parents[1] / "scripts" / "audit_run_provenance.py"
+            command = [sys.executable, str(script), temp, "P1", "P2", "P3", "--distinct-seeds"]
+            valid = subprocess.run(
+                [*command, "--expected-seeds", "0", "1", "2"],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(valid.returncode, 0)
+            self.assertTrue(json.loads(valid.stdout)["expected_seed_set_matches"])
+
+            mismatch = subprocess.run(
+                [*command, "--expected-seeds", "0", "1", "3"],
+                capture_output=True, text=True, check=False,
+            )
+            report = json.loads(mismatch.stdout)
+            self.assertEqual(mismatch.returncode, 2)
+            self.assertEqual(report["artifact_status"], "incomplete")
+            self.assertFalse(report["expected_seed_set_matches"])
+
+            invalid = subprocess.run(
+                [sys.executable, str(script), temp, "P1", "P2", "P3", "--expected-seeds", "0", "1", "2"],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(invalid.returncode, 2)
+            self.assertIn("requires --distinct-seeds", invalid.stderr)
+
+
     def test_distinct_seeds_with_shared_artifacts_require_review(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
