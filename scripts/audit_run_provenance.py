@@ -114,7 +114,7 @@ def inspect_run(root, run_id):
     return record
 
 
-def compare_values(left, right, expected_rows=None, expected_grid=None, reference_grid=None):
+def compare_values(left, right, expected_rows=None, expected_grid=None, reference_grid=None, prediction_column=None):
     try:
         import pandas as pd
 
@@ -146,6 +146,8 @@ def compare_values(left, right, expected_rows=None, expected_grid=None, referenc
         )]
         if not numeric:
             return {**result, "equal": None, "unavailable": "No numeric prediction values to compare."}
+        if prediction_column is not None and prediction_column not in numeric:
+            return {**result, "equal": None, "unavailable": f"Missing or nonnumeric prediction column: {prediction_column}"}
         import numpy as np
         if any(not np.isfinite(frame[numeric].to_numpy(dtype=float)).all() for frame in (a, b)):
             return {**result, "equal": None, "unavailable": "Non-finite prediction values."}
@@ -167,7 +169,7 @@ def compare_values(left, right, expected_rows=None, expected_grid=None, referenc
         return {"unavailable": str(error)}
 
 
-def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_rows=None, expected_grid=None, reference_grid=None, require_group_metrics=False, expected_seeds=None, match_seed_order=False, require_provenance_hashes=False):
+def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_rows=None, expected_grid=None, reference_grid=None, require_group_metrics=False, expected_seeds=None, match_seed_order=False, require_provenance_hashes=False, prediction_column=None):
     reference_info = fingerprint(reference_grid) if reference_grid is not None else None
     runs = {run_id: inspect_run(root, run_id) for run_id in run_ids}
     seed_ids = {run_id: seed_id(run["seed"]) for run_id, run in runs.items()}
@@ -241,7 +243,7 @@ def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_r
                 pair["provenance_warning"] = "Different data/protocol hashes: verify evaluation-input identity."
         if compare_parquet and same_bytes is not None:
             paths = (root / left / "predictions.parquet", root / right / "predictions.parquet")
-            pair["prediction_values"] = compare_values(*paths, expected_rows, expected_grid, reference_grid)
+            pair["prediction_values"] = compare_values(*paths, expected_rows, expected_grid, reference_grid, prediction_column)
             if any(fingerprint(path).get("sha256") != info["sha256"] for path, info in zip(paths, (pred_a, pred_b))):
                 pair["prediction_values"] = {"unavailable": "Prediction artifact changed during value comparison."}
                 pair["prediction_bytes_equal"] = None
@@ -336,6 +338,7 @@ def main():
     parser.add_argument("--expected-rows", type=int, help="Expected rows per Parquet file; requires --compare-values")
     parser.add_argument("--expected-grid", type=int, nargs=2, metavar=("SITES", "HOURS"), help="Require a complete site-by-hour grid; requires --compare-values")
     parser.add_argument("--reference-grid", type=Path, help="Parquet file with official site_id/ts keys; requires --compare-values and two runs")
+    parser.add_argument("--prediction-column", help="Require a named numeric prediction column; requires --compare-values")
     args = parser.parse_args()
     if args.compare_values and len(args.run_ids) < 2:
         parser.error("--compare-values requires at least two run IDs")
@@ -355,9 +358,11 @@ def main():
         parser.error("--expected-grid requires --compare-values, positive dimensions, and consistent --expected-rows")
     if args.reference_grid is not None and (not args.compare_values or len(args.run_ids) < 2):
         parser.error("--reference-grid requires --compare-values and at least two run IDs")
+    if args.prediction_column is not None and (not args.compare_values or args.prediction_column in ("site_id", "ts") or not args.prediction_column.strip()):
+        parser.error("--prediction-column requires --compare-values and a non-key column name")
     if len(args.run_ids) != len(set(args.run_ids)) or any(Path(run_id).name != run_id or run_id in (".", "..") for run_id in args.run_ids):
         parser.error("Run IDs must be distinct directory names")
-    report = audit(args.runs_dir, args.run_ids, args.compare_values, args.distinct_seeds, args.expected_rows, args.expected_grid, args.reference_grid, args.require_group_metrics, args.expected_seeds, args.match_seed_order, args.require_provenance_hashes)
+    report = audit(args.runs_dir, args.run_ids, args.compare_values, args.distinct_seeds, args.expected_rows, args.expected_grid, args.reference_grid, args.require_group_metrics, args.expected_seeds, args.match_seed_order, args.require_provenance_hashes, args.prediction_column)
     print(json.dumps(report, ensure_ascii=False, indent=2))
     if report["artifact_status"] == "incomplete" or report["comparison_status"] == "incomplete":
         sys.exit(2)
