@@ -189,6 +189,8 @@ def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_r
                     differences[filename + "." + key] = [left_meta[key], right_meta[key]]
         if differences:
             pair["provenance_differences"] = differences
+            if any(key.endswith((".data_hash", ".protocol_hash")) for key in differences):
+                pair["provenance_warning"] = "Different data/protocol hashes: verify evaluation-input identity."
         if compare_parquet and same_bytes is not None:
             pair["prediction_values"] = compare_values(root / left / "predictions.parquet", root / right / "predictions.parquet", expected_rows, expected_grid, reference_grid)
         values_equal = pair.get("prediction_values", {}).get("equal") is True
@@ -234,7 +236,7 @@ def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_r
         name for name, run in runs.items()
         if "warning" in run or "seed_conflict" in run or "parent_conflict" in run or "provenance_conflicts" in run
     ]
-    flagged += [name for name, pair in pairs.items() if "warning" in pair]
+    flagged += [name for name, pair in pairs.items() if "warning" in pair or "provenance_warning" in pair]
     flagged += ["duplicate_seed:" + seed for seed in duplicate_seeds]
     return {
         "runs": runs,
