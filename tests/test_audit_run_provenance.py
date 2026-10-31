@@ -767,5 +767,43 @@ class AuditTests(unittest.TestCase):
                 self.assertIn("--compare-values requires at least two run IDs", result.stderr)
 
 
+
+    def test_required_group_metrics_rejects_missing_group_scores(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for run_id in ("P1", "P2"):
+                folder = root / run_id
+                folder.mkdir()
+                (folder / "config.json").write_text("{}", encoding="utf-8")
+                (folder / "manifest.json").write_text("{}", encoding="utf-8")
+                (folder / "result.json").write_text('{"metrics": {"W": 100}}', encoding="utf-8")
+                (folder / "model.pt").write_bytes(run_id.encode())
+                (folder / "predictions.parquet").write_bytes(run_id.encode())
+
+            script = Path(__file__).resolve().parents[1] / "scripts" / "audit_run_provenance.py"
+            command = [sys.executable, str(script), temp, "P1", "P2"]
+            default = subprocess.run(command, capture_output=True, text=True, check=False)
+            self.assertEqual(default.returncode, 0)
+
+            required = subprocess.run(
+                [*command, "--require-group-metrics"], capture_output=True, text=True, check=False,
+            )
+            report = json.loads(required.stdout)
+            self.assertEqual(required.returncode, 2)
+            self.assertEqual(report["artifact_status"], "incomplete")
+            self.assertEqual(report["missing_group_scores"], ["P1", "P2"])
+
+            for run_id in ("P1", "P2"):
+                (root / run_id / "result.json").write_text(
+                    json.dumps({"metrics": {"W": 100, "group_metrics": {"G1": {"W": 40}, "G2": {"W": 60}}}}),
+                    encoding="utf-8",
+                )
+            valid = subprocess.run(
+                [*command, "--require-group-metrics"], capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(valid.returncode, 0)
+            self.assertEqual(json.loads(valid.stdout)["missing_group_scores"], [])
+
+
 if __name__ == "__main__":
     unittest.main()
