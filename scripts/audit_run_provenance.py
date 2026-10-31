@@ -171,8 +171,9 @@ def compare_values(left, right, expected_rows=None, expected_grid=None, referenc
         return {"unavailable": str(error)}
 
 
-def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_rows=None, expected_grid=None, reference_grid=None, require_group_metrics=False, expected_seeds=None, match_seed_order=False, require_provenance_hashes=False, prediction_column=None):
+def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_rows=None, expected_grid=None, reference_grid=None, require_group_metrics=False, expected_seeds=None, match_seed_order=False, require_provenance_hashes=False, prediction_column=None, reference_sha256=None):
     reference_info = fingerprint(reference_grid) if reference_grid is not None else None
+    reference_hash_matches = reference_info.get("sha256") == reference_sha256 if reference_sha256 is not None else None
     reference_alias = reference_grid is not None and reference_grid.exists() and any(
         (root / run_id / "predictions.parquet").exists()
         and reference_grid.samefile(root / run_id / "predictions.parquet")
@@ -298,12 +299,12 @@ def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_r
         for run_id, record in runs.items()
     }
     unreadable = {run_id: keys for run_id, keys in unreadable.items() if keys}
-    incomplete = bool(missing or unreadable_artifacts or empty_artifacts or missing_scores or missing_group_scores or invalid_group_scores or unreadable or missing_seeds or invalid_seeds or missing_provenance_hashes or expected_seed_set_matches is False or expected_seed_order_matches is False or reference_changed or reference_alias)
+    incomplete = bool(missing or unreadable_artifacts or empty_artifacts or missing_scores or missing_group_scores or invalid_group_scores or unreadable or missing_seeds or invalid_seeds or missing_provenance_hashes or expected_seed_set_matches is False or expected_seed_order_matches is False or reference_changed or reference_alias or reference_hash_matches is False)
     unverified_pairs = [
         name for name, pair in pairs.items()
         if compare_parquet and not isinstance(pair.get("prediction_values", {}).get("equal"), bool)
     ]
-    if reference_changed or reference_alias:
+    if reference_changed or reference_alias or reference_hash_matches is False:
         unverified_pairs = list(pairs)
     flagged = [
         name for name, run in runs.items()
@@ -321,6 +322,7 @@ def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_r
         "unverified_value_pairs": unverified_pairs,
         "reference_grid_fingerprint": reference_info,
         "reference_grid_stable": not reference_changed if reference_info is not None else None,
+        "reference_grid_hash_matches": reference_hash_matches,
         "reference_grid_path_distinct": not reference_alias if reference_info is not None else None,
         "missing_artifacts": missing,
         "unreadable_artifacts": unreadable_artifacts,
@@ -352,6 +354,7 @@ def main():
     parser.add_argument("--expected-rows", type=int, help="Expected rows per Parquet file; requires --compare-values")
     parser.add_argument("--expected-grid", type=int, nargs=2, metavar=("SITES", "HOURS"), help="Require a complete site-by-hour grid; requires --compare-values")
     parser.add_argument("--reference-grid", type=Path, help="Parquet file with official site_id/ts keys; requires --compare-values and two runs")
+    parser.add_argument("--reference-sha256", help="Trusted SHA-256 of --reference-grid; reject an unexpected file")
     parser.add_argument("--prediction-column", help="Require a named numeric prediction column; requires --compare-values")
     args = parser.parse_args()
     if args.compare_values and len(args.run_ids) < 2:
@@ -372,11 +375,13 @@ def main():
         parser.error("--expected-grid requires --compare-values, positive dimensions, and consistent --expected-rows")
     if args.reference_grid is not None and (not args.compare_values or len(args.run_ids) < 2):
         parser.error("--reference-grid requires --compare-values and at least two run IDs")
+    if args.reference_sha256 is not None and (args.reference_grid is None or len(args.reference_sha256) != 64 or any(char not in "0123456789abcdefABCDEF" for char in args.reference_sha256)):
+        parser.error("--reference-sha256 requires --reference-grid and a 64-character hexadecimal digest")
     if args.prediction_column is not None and (not args.compare_values or args.prediction_column in ("site_id", "ts") or not args.prediction_column.strip()):
         parser.error("--prediction-column requires --compare-values and a non-key column name")
     if len(args.run_ids) != len(set(args.run_ids)) or any(Path(run_id).name != run_id or run_id in (".", "..") for run_id in args.run_ids):
         parser.error("Run IDs must be distinct directory names")
-    report = audit(args.runs_dir, args.run_ids, args.compare_values, args.distinct_seeds, args.expected_rows, args.expected_grid, args.reference_grid, args.require_group_metrics, args.expected_seeds, args.match_seed_order, args.require_provenance_hashes, args.prediction_column)
+    report = audit(args.runs_dir, args.run_ids, args.compare_values, args.distinct_seeds, args.expected_rows, args.expected_grid, args.reference_grid, args.require_group_metrics, args.expected_seeds, args.match_seed_order, args.require_provenance_hashes, args.prediction_column, args.reference_sha256)
     print(json.dumps(report, ensure_ascii=False, indent=2))
     if report["artifact_status"] == "incomplete" or report["comparison_status"] == "incomplete":
         sys.exit(2)
