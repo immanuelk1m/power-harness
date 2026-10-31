@@ -257,6 +257,10 @@ def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_r
                 and (pair["model_bytes_equal"] or same_bytes or values_equal)):
             pair.setdefault("warning", "Different seeds share identical model or predictions: verify independent training.")
         pairs[left + "/" + right] = pair
+    for run_id, record in runs.items():
+        for name, info in record["files"].items():
+            if "sha256" in info and fingerprint(root / run_id / name).get("sha256") != info["sha256"]:
+                record["files"][name] = {"unreadable": "Artifact changed during audit"}
     reference_changed = reference_info is not None and (
         "sha256" not in reference_info
         or fingerprint(reference_grid).get("sha256") != reference_info["sha256"]
