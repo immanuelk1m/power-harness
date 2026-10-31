@@ -137,10 +137,10 @@ def compare_values(left, right, expected_rows=None, expected_grid=None, referenc
                 return {**result, "equal": None, "unavailable": f"Expected complete {sites}-site x {hours}-hour grid."}
         if not len(a) or not len(b):
             return {**result, "equal": None, "unavailable": "Empty prediction grid: cannot compare values reliably."}
-        values = [column for column in a.columns if column not in keys]
-        if not values or set(a.columns) != set(b.columns):
+        values = [prediction_column] if prediction_column is not None else [column for column in a.columns if column not in keys]
+        if not values or (prediction_column is None and set(a.columns) != set(b.columns)):
             return {**result, "equal": None, "unavailable": "Missing or mismatched prediction columns."}
-        numeric = [column for column in values if all(
+        numeric = [column for column in values if column in a.columns and column in b.columns and all(
             pd.api.types.is_numeric_dtype(frame[column]) and not pd.api.types.is_bool_dtype(frame[column])
             for frame in (a, b)
         )]
@@ -162,7 +162,9 @@ def compare_values(left, right, expected_rows=None, expected_grid=None, referenc
             expected = expected.sort_values(keys).reset_index(drop=True)
             if not a[keys].equals(expected[keys]):
                 return {**result, "equal": None, "unavailable": "Prediction grid differs from reference site_id/ts keys."}
-        if set(a.columns) == set(b.columns):
+        if prediction_column is not None:
+            a, b = a[keys + [prediction_column]], b[keys + [prediction_column]]
+        else:
             b = b[a.columns]
         return {**result, "equal": a.equals(b)}
     except Exception as error:  # Optional parquet dependencies must not prevent the hash audit.
