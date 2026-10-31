@@ -168,6 +168,7 @@ def compare_values(left, right, expected_rows=None, expected_grid=None, referenc
 
 
 def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_rows=None, expected_grid=None, reference_grid=None, require_group_metrics=False, expected_seeds=None, match_seed_order=False):
+    reference_info = fingerprint(reference_grid) if reference_grid is not None else None
     runs = {run_id: inspect_run(root, run_id) for run_id in run_ids}
     seed_ids = {run_id: seed_id(run["seed"]) for run_id, run in runs.items()}
     missing_seeds = [run_id for run_id, run in runs.items() if run["seed"] is None] if distinct_seeds else []
@@ -239,6 +240,10 @@ def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_r
                 and (pair["model_bytes_equal"] or same_bytes or values_equal)):
             pair.setdefault("warning", "Different seeds share identical model or predictions: verify independent training.")
         pairs[left + "/" + right] = pair
+    reference_changed = reference_info is not None and (
+        "sha256" not in reference_info
+        or fingerprint(reference_grid).get("sha256") != reference_info["sha256"]
+    )
     missing = {
         run_id: [name for name, info in record["files"].items() if info.get("missing")]
         for run_id, record in runs.items()
@@ -265,11 +270,13 @@ def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_r
         for run_id, record in runs.items()
     }
     unreadable = {run_id: keys for run_id, keys in unreadable.items() if keys}
-    incomplete = bool(missing or unreadable_artifacts or empty_artifacts or missing_scores or missing_group_scores or invalid_group_scores or unreadable or missing_seeds or invalid_seeds or expected_seed_set_matches is False or expected_seed_order_matches is False)
+    incomplete = bool(missing or unreadable_artifacts or empty_artifacts or missing_scores or missing_group_scores or invalid_group_scores or unreadable or missing_seeds or invalid_seeds or expected_seed_set_matches is False or expected_seed_order_matches is False or reference_changed)
     unverified_pairs = [
         name for name, pair in pairs.items()
         if compare_parquet and not isinstance(pair.get("prediction_values", {}).get("equal"), bool)
     ]
+    if reference_changed:
+        unverified_pairs = list(pairs)
     flagged = [
         name for name, run in runs.items()
         if "warning" in run or "seed_conflict" in run or "parent_conflict" in run or "provenance_conflicts" in run
@@ -284,6 +291,8 @@ def audit(root, run_ids, compare_parquet=False, distinct_seeds=False, expected_r
         "artifact_status": "incomplete" if incomplete else "present",
         "comparison_status": "incomplete" if unverified_pairs else "complete" if compare_parquet else "not_requested",
         "unverified_value_pairs": unverified_pairs,
+        "reference_grid_fingerprint": reference_info,
+        "reference_grid_stable": not reference_changed if reference_info is not None else None,
         "missing_artifacts": missing,
         "unreadable_artifacts": unreadable_artifacts,
         "empty_artifacts": empty_artifacts,
