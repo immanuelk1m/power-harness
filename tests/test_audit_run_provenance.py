@@ -1228,5 +1228,53 @@ class AuditTests(unittest.TestCase):
             self.assertIn("changed during audit", report["runs"]["P1"]["files"]["model.pt"]["unreadable"].lower())
 
 
+    def test_reference_grid_must_not_alias_prediction_artifacts(self):
+        try:
+            import pandas as pd
+            import pyarrow  # noqa: F401
+        except ImportError:
+            self.skipTest("Optional parquet dependencies are unavailable")
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            predictions = pd.DataFrame({
+                "site_id": [1, 1, 2, 2], "ts": [1, 2, 1, 2],
+                "prediction": [1.0, 2.0, 3.0, 4.0],
+            })
+            for run_id in ("P1", "P2"):
+                folder = root / run_id
+                folder.mkdir()
+                (folder / "config.json").write_text("{}", encoding="utf-8")
+                (folder / "manifest.json").write_text("{}", encoding="utf-8")
+                (folder / "result.json").write_text('{"metrics": {"W": 100}}', encoding="utf-8")
+                (folder / "model.pt").write_bytes(b"model")
+                predictions.to_parquet(folder / "predictions.parquet", index=False)
+
+            script = Path(__file__).resolve().parents[1] / "scripts" / "audit_run_provenance.py"
+            command = [sys.executable, str(script), temp, "P1", "P2", "--compare-values"]
+            prediction_path = root / "P1" / "predictions.parquet"
+            alias = root / "linked_reference.parquet"
+            alias.symlink_to(prediction_path)
+
+            for reference in (prediction_path, alias):
+                result = subprocess.run(
+                    [*command, "--reference-grid", str(reference)],
+                    capture_output=True, text=True, check=False,
+                )
+                report = json.loads(result.stdout)
+                self.assertEqual(result.returncode, 2)
+                self.assertFalse(report["reference_grid_path_distinct"])
+                self.assertEqual(report["comparison_status"], "incomplete")
+
+            official = root / "official_keys.parquet"
+            predictions[["site_id", "ts"]].to_parquet(official, index=False)
+            valid = subprocess.run(
+                [*command, "--reference-grid", str(official)],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(valid.returncode, 0)
+            self.assertTrue(json.loads(valid.stdout)["reference_grid_path_distinct"])
+
+
 if __name__ == "__main__":
     unittest.main()
