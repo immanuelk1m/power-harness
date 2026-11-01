@@ -1155,7 +1155,7 @@ class AuditTests(unittest.TestCase):
 
 
 
-    def test_named_prediction_column_ignores_unrelated_parquet_fields(self):
+    def test_named_prediction_column_ignores_auxiliary_fields_and_numeric_dtypes(self):
         import pandas as pd
 
         with tempfile.TemporaryDirectory() as temp:
@@ -1181,6 +1181,8 @@ class AuditTests(unittest.TestCase):
                 frame.to_parquet(folder / "predictions.parquet", index=False)
 
             a, b = (root / run_id / "predictions.parquet" for run_id in ("P1", "P2"))
+            right["prediction"] = right["prediction"].astype("float32")
+            right.to_parquet(b, index=False)
             self.assertIsNone(compare_values(a, b)["equal"])
             self.assertTrue(compare_values(a, b, prediction_column="prediction")["equal"])
 
