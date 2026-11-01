@@ -182,10 +182,12 @@ def compare_values(left, right, expected_rows=None, expected_grid=None, referenc
             expected = expected.sort_values(keys).reset_index(drop=True)
             if not a[keys].equals(expected[keys]):
                 return {**result, "equal": None, "unavailable": "Prediction grid differs from reference site_id/ts keys."}
-        if prediction_column is not None:
-            equal = np.array_equal(a[prediction_column].to_numpy(dtype=object), b[prediction_column].to_numpy(dtype=object))
-        else:
-            equal = a.equals(b[a.columns])
+        columns = numeric if prediction_column is not None else a.columns
+        equal = all(
+            np.array_equal(a[column].to_numpy(dtype=object), b[column].to_numpy(dtype=object))
+            if column in numeric else a[column].equals(b[column])
+            for column in columns
+        )
         return {**result, "equal": bool(equal)}
     except Exception as error:  # Optional parquet dependencies must not prevent the hash audit.
         return {"unavailable": str(error)}
