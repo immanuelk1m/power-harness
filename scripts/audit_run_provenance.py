@@ -35,6 +35,13 @@ def fingerprint(path):
         return {"unreadable": str(error)}
 
 
+def unique_json_keys(pairs):
+    data = dict(pairs)
+    if len(data) != len(pairs):
+        raise ValueError("Duplicate JSON keys")
+    return data
+
+
 def w_value(value):
     if isinstance(value, dict):
         value = value.get("W")
@@ -61,7 +68,7 @@ def inspect_run(root, run_id):
         if files[name].get("missing") or files[name].get("unreadable"):
             continue
         try:
-            data = json.loads((folder / name).read_text(encoding="utf-8"))
+            data = json.loads((folder / name).read_text(encoding="utf-8"), object_pairs_hook=unique_json_keys)
         except (OSError, ValueError) as error:
             record[name + "_error"] = str(error)
             continue
