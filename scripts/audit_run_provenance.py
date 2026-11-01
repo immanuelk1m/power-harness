@@ -80,7 +80,7 @@ def inspect_run(root, run_id):
             continue
         try:
             data = json.loads((folder / name).read_text(encoding="utf-8"), object_pairs_hook=unique_json_keys, parse_constant=reject_nonfinite_json, parse_float=finite_json_float)
-        except (OSError, ValueError) as error:
+        except (OSError, ValueError, RecursionError) as error:
             record[name + "_error"] = str(error)
             continue
         if fingerprint(folder / name).get("sha256") != files[name].get("sha256"):
