@@ -1203,6 +1203,20 @@ class AuditTests(unittest.TestCase):
             self.assertFalse(compare_values(a, b, prediction_column="prediction")["equal"])
 
 
+    def test_named_prediction_column_preserves_large_integer_precision(self):
+        import pandas as pd
+
+        keys = {"site_id": ["PV001"], "ts": [1]}
+        large_integer = pd.DataFrame({**keys, "prediction": pd.Series([2**53 + 1], dtype="int64")})
+        rounded_float = pd.DataFrame({**keys, "prediction": pd.Series([float(2**53 + 1)], dtype="float64")})
+        exact_float = pd.DataFrame({**keys, "prediction": pd.Series([10.0], dtype="float64")})
+        exact_integer = pd.DataFrame({**keys, "prediction": pd.Series([10], dtype="int64")})
+
+        with patch("pandas.read_parquet", side_effect=[large_integer, rounded_float]):
+            self.assertFalse(compare_values("left.parquet", "right.parquet", prediction_column="prediction")["equal"])
+        with patch("pandas.read_parquet", side_effect=[exact_integer, exact_float]):
+            self.assertTrue(compare_values("left.parquet", "right.parquet", prediction_column="prediction")["equal"])
+
     def test_model_rewritten_after_inspection_is_incomplete(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
