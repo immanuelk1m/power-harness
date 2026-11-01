@@ -46,6 +46,13 @@ def reject_nonfinite_json(value):
     raise ValueError(f"Invalid JSON constant: {value}")
 
 
+def finite_json_float(value):
+    parsed = float(value)
+    if not isfinite(parsed):
+        raise ValueError(f"Invalid JSON number: {value}")
+    return parsed
+
+
 def w_value(value):
     if isinstance(value, dict):
         value = value.get("W")
@@ -72,7 +79,7 @@ def inspect_run(root, run_id):
         if files[name].get("missing") or files[name].get("unreadable"):
             continue
         try:
-            data = json.loads((folder / name).read_text(encoding="utf-8"), object_pairs_hook=unique_json_keys, parse_constant=reject_nonfinite_json)
+            data = json.loads((folder / name).read_text(encoding="utf-8"), object_pairs_hook=unique_json_keys, parse_constant=reject_nonfinite_json, parse_float=finite_json_float)
         except (OSError, ValueError) as error:
             record[name + "_error"] = str(error)
             continue
