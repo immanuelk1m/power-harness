@@ -52,6 +52,32 @@ class AuditTests(unittest.TestCase):
             self.assertEqual(result.returncode, 2)
             self.assertEqual(json.loads(result.stdout)["artifact_status"], "incomplete")
 
+    def test_nonstandard_json_constants_are_incomplete(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp) / "P1"
+            folder.mkdir()
+            originals = {
+                "config.json": '{"seed": 0}',
+                "manifest.json": "{}",
+                "result.json": '{"metrics": {"W": 100}}',
+            }
+            for name, content in originals.items():
+                (folder / name).write_text(content, encoding="utf-8")
+            (folder / "predictions.parquet").write_bytes(b"predictions")
+            (folder / "model.pt").write_bytes(b"model")
+
+            for name, content in (
+                ("config.json", '{"seed": 0, "source_hash": NaN}'),
+                ("result.json", '{"metrics": {"W": 100, "group_metrics": {"G1": {"W": Infinity}}}}'),
+            ):
+                with self.subTest(name=name):
+                    (folder / name).write_text(content, encoding="utf-8")
+                    report = audit(Path(temp), ["P1"])
+                    self.assertEqual(report["artifact_status"], "incomplete")
+                    self.assertIn(name + "_error", report["unreadable_json"]["P1"])
+                    self.assertIn("Invalid JSON constant", report["runs"]["P1"][name + "_error"])
+                    (folder / name).write_text(originals[name], encoding="utf-8")
+
     def test_distinct_seed_audit_is_opt_in_and_fails_closed(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -620,7 +646,7 @@ class AuditTests(unittest.TestCase):
             (folder / "model.pt").write_bytes(b"model")
             (folder / "predictions.parquet").write_bytes(b"predictions")
 
-            for groups in ({"G1": {"W": 40}, "G2": {"W": float("nan")}}, {"G1": {"W": 40}}):
+            for groups in ({"G1": {"W": 40}, "G2": {"W": None}}, {"G1": {"W": 40}}):
                 with self.subTest(groups=groups):
                     (folder / "result.json").write_text(
                         json.dumps({"metrics": {"W": 100, "group_metrics": groups}}), encoding="utf-8",
