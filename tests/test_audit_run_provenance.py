@@ -1325,6 +1325,22 @@ class AuditTests(unittest.TestCase):
             self.assertFalse(compare_values(a, b, prediction_column="prediction")["equal"])
 
 
+    def test_named_prediction_column_ignores_nonfinite_numeric_auxiliary(self):
+        import pandas as pd
+
+        keys = {"site_id": ["PV001"], "ts": [1]}
+        left = pd.DataFrame({**keys, "prediction": [10.0], "auxiliary": [float("nan")]})
+        right = pd.DataFrame({**keys, "prediction": [10.0], "auxiliary": [float("inf")]})
+
+        with patch("pandas.read_parquet", side_effect=[left, right]):
+            self.assertTrue(compare_values("left.parquet", "right.parquet", prediction_column="prediction")["equal"])
+        with patch("pandas.read_parquet", side_effect=[left, right]):
+            self.assertIsNone(compare_values("left.parquet", "right.parquet")["equal"])
+
+        left["prediction"] = float("nan")
+        with patch("pandas.read_parquet", side_effect=[left, right]):
+            self.assertIsNone(compare_values("left.parquet", "right.parquet", prediction_column="prediction")["equal"])
+
     def test_named_prediction_column_preserves_large_integer_precision(self):
         import pandas as pd
 
