@@ -1309,5 +1309,27 @@ class AuditTests(unittest.TestCase):
                 self.assertIn("--reference-sha256 requires", invalid.stderr)
 
 
+    def test_reference_identity_permission_error_is_incomplete(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for run_id in ("P1", "P2"):
+                folder = root / run_id
+                folder.mkdir()
+                (folder / "config.json").write_text("{}", encoding="utf-8")
+                (folder / "manifest.json").write_text("{}", encoding="utf-8")
+                (folder / "result.json").write_text('{"metrics": {"W": 100}}', encoding="utf-8")
+                (folder / "predictions.parquet").write_bytes(run_id.encode())
+                (folder / "model.pt").write_bytes(b"model")
+            reference = root / "reference.parquet"
+            reference.write_bytes(b"reference")
+            with patch.object(Path, "samefile", side_effect=PermissionError("access denied")):
+                with patch("audit_run_provenance.compare_values", return_value={"equal": True}):
+                    report = audit(root, ["P1", "P2"], compare_parquet=True, reference_grid=reference)
+            self.assertEqual(report["artifact_status"], "incomplete")
+            self.assertEqual(report["comparison_status"], "incomplete")
+            self.assertIsNone(report["reference_grid_path_distinct"])
+            self.assertIn("access denied", report["reference_grid_identity_error"])
+
+
 if __name__ == "__main__":
     unittest.main()
