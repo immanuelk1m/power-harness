@@ -14,6 +14,28 @@ from audit_run_provenance import audit, compare_values, fingerprint, inspect_run
 
 
 class AuditTests(unittest.TestCase):
+    def test_excessively_nested_json_is_incomplete(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp) / "P1"
+            folder.mkdir()
+            (folder / "config.json").write_text(
+                '{"nested":' + '[' * 10000 + '0' + ']' * 10000 + '}', encoding="utf-8",
+            )
+            (folder / "manifest.json").write_text("{}", encoding="utf-8")
+            (folder / "result.json").write_text('{"metrics": {"W": 100}}', encoding="utf-8")
+            (folder / "predictions.parquet").write_bytes(b"predictions")
+            (folder / "model.pt").write_bytes(b"model")
+
+            script = Path(__file__).resolve().parents[1] / "scripts" / "audit_run_provenance.py"
+            result = subprocess.run(
+                [sys.executable, str(script), temp, "P1"],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(result.returncode, 2)
+            report = json.loads(result.stdout)
+            self.assertEqual(report["artifact_status"], "incomplete")
+            self.assertIn("config.json_error", report["unreadable_json"]["P1"])
+
     def test_duplicate_metadata_keys_are_incomplete(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
