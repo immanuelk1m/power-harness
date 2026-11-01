@@ -163,7 +163,7 @@ def compare_values(left, right, expected_rows=None, expected_grid=None, referenc
             if not a[keys].equals(expected[keys]):
                 return {**result, "equal": None, "unavailable": "Prediction grid differs from reference site_id/ts keys."}
         if prediction_column is not None:
-            equal = np.array_equal(a[prediction_column].to_numpy(), b[prediction_column].to_numpy())
+            equal = np.array_equal(a[prediction_column].to_numpy(dtype=object), b[prediction_column].to_numpy(dtype=object))
         else:
             equal = a.equals(b[a.columns])
         return {**result, "equal": bool(equal)}
