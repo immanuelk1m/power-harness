@@ -1341,6 +1341,27 @@ class AuditTests(unittest.TestCase):
         with patch("pandas.read_parquet", side_effect=[left, right]):
             self.assertIsNone(compare_values("left.parquet", "right.parquet", prediction_column="prediction")["equal"])
 
+    def test_default_comparison_preserves_numeric_values_and_auxiliary_types(self):
+        import pandas as pd
+
+        keys = {"site_id": ["PV001"], "ts": [1]}
+        base = pd.DataFrame({**keys, "forecast": [10.0], "flag": [True]})
+        float32 = base.assign(forecast=base["forecast"].astype("float32"))
+        integer = base.assign(forecast=base["forecast"].astype("int64"))
+        large = base.assign(forecast=pd.Series([2**53 + 1], dtype="int64"))
+        rounded = base.assign(forecast=pd.Series([float(2**53 + 1)], dtype="float64"))
+        changed_flag = base.assign(flag=pd.Series([1], dtype="int64"))
+
+        for left, right, expected in (
+            (float32, base, True),
+            (integer, base, True),
+            (large, rounded, False),
+            (base, changed_flag, False),
+        ):
+            with self.subTest(expected=expected, left=str(left.dtypes.to_dict())):
+                with patch("pandas.read_parquet", side_effect=[left, right]):
+                    self.assertIs(compare_values("left.parquet", "right.parquet")["equal"], expected)
+
     def test_named_prediction_column_preserves_large_integer_precision(self):
         import pandas as pd
 
