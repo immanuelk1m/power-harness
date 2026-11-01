@@ -166,6 +166,8 @@ def compare_values(left, right, expected_rows=None, expected_grid=None, referenc
             return {**result, "equal": None, "unavailable": "No numeric prediction values to compare."}
         if prediction_column is not None and prediction_column not in numeric:
             return {**result, "equal": None, "unavailable": f"Missing or nonnumeric prediction column: {prediction_column}"}
+        if prediction_column is not None:
+            numeric = [prediction_column]
         import numpy as np
         if any(not np.isfinite(frame[numeric].to_numpy(dtype=float)).all() for frame in (a, b)):
             return {**result, "equal": None, "unavailable": "Non-finite prediction values."}
