@@ -14,6 +14,44 @@ from audit_run_provenance import audit, compare_values, fingerprint, inspect_run
 
 
 class AuditTests(unittest.TestCase):
+    def test_duplicate_metadata_keys_are_incomplete(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            folder = root / "P1"
+            folder.mkdir()
+            originals = {
+                "config.json": '{"seed": 0}',
+                "manifest.json": "{}",
+                "result.json": '{"metrics": {"W": 100}}',
+            }
+            for name, content in originals.items():
+                (folder / name).write_text(content, encoding="utf-8")
+            (folder / "predictions.parquet").write_bytes(b"predictions")
+            (folder / "model.pt").write_bytes(b"model")
+
+            for name, content in (
+                ("config.json", '{"seed": 0, "seed": 1}'),
+                ("result.json", '{"metrics": {"W": 100, "W": 200}}'),
+            ):
+                with self.subTest(name=name):
+                    (folder / name).write_text(content, encoding="utf-8")
+                    report = audit(root, ["P1"])
+                    self.assertEqual(report["artifact_status"], "incomplete")
+                    self.assertIn(name + "_error", report["unreadable_json"]["P1"])
+                    self.assertIn("Duplicate JSON keys", report["runs"]["P1"][name + "_error"])
+                    (folder / name).write_text(originals[name], encoding="utf-8")
+
+            (folder / "result.json").write_text(
+                '{"metrics": {"W": 100, "W": 200}}', encoding="utf-8",
+            )
+            script = Path(__file__).resolve().parents[1] / "scripts" / "audit_run_provenance.py"
+            result = subprocess.run(
+                [sys.executable, str(script), temp, "P1"],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(json.loads(result.stdout)["artifact_status"], "incomplete")
+
     def test_distinct_seed_audit_is_opt_in_and_fails_closed(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
