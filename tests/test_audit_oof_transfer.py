@@ -51,6 +51,16 @@ class OofTransferTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Inconsistent actual across seeds"):
             audit(paired, self.sites)
 
+    def test_rejects_seed_support_or_mask_mismatch(self):
+        paired = pd.concat([self.rows, self.rows.assign(seed="1")], ignore_index=True)
+        missing = paired.loc[~((paired["seed"] == "1") & (paired["site_id"] == "b"))]
+        with self.assertRaisesRegex(ValueError, "Site-hour support differs across seeds"):
+            audit(missing, self.sites)
+        masked = paired.copy()
+        masked.loc[(masked["seed"] == "1") & (masked["site_id"] == "c"), "original_mask"] = 0
+        with self.assertRaisesRegex(ValueError, "Inconsistent original_mask across seeds"):
+            audit(masked, self.sites)
+
     def test_rejects_inconsistent_mask_and_k(self):
         bad = self.rows.copy()
         bad.loc[0, "original_mask"] = 0
