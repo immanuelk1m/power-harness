@@ -46,6 +46,8 @@ def audit(predictions, membership):
         raise ValueError("Unknown site_id")
     if rows.groupby("ts")["smp"].nunique().gt(1).any():
         raise ValueError("Inconsistent SMP at the same timestamp")
+    if rows.groupby(["ts", "site_id"])["actual"].nunique().gt(1).any():
+        raise ValueError("Inconsistent actual across seeds for the same site-hour")
     keys = ["seed", "ts", "group"]
     grouped = rows.groupby(keys, sort=True)
     if grouped["original_mask"].nunique().gt(1).any():
