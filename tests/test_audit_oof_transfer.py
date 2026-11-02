@@ -45,6 +45,11 @@ class OofTransferTests(unittest.TestCase):
             with self.subTest(ts=ts), self.assertRaisesRegex(ValueError, "pre-cutoff"):
                 audit(self.rows.assign(ts=ts, k=1), self.sites)
 
+    def test_rejects_subhour_timestamps(self):
+        for ts in ("2024-11-01T12:30:00+09:00", "2024-11-01T12:00:01+09:00"):
+            with self.subTest(ts=ts), self.assertRaisesRegex(ValueError, "hourly"):
+                audit(self.rows.assign(ts=ts), self.sites)
+
     def test_rejects_duplicate_after_timestamp_normalization(self):
         rows = self.rows.assign(ts="2024-11-01T12:00:00.000+09:00")
         duplicate = rows.iloc[:1].assign(ts="2024-11-01T12:00:00.000000+09:00")
