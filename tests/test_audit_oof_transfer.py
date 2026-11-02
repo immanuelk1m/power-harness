@@ -38,6 +38,13 @@ class OofTransferTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Duplicate"):
             audit(pd.concat([self.rows, self.rows.iloc[:1]]), self.sites)
 
+    def test_rejects_conflicting_actual_across_seeds(self):
+        paired = pd.concat([self.rows, self.rows.assign(seed="1")], ignore_index=True)
+        self.assertEqual(audit(paired, self.sites)["mask_group_hours"]["original_mask"], 4)
+        paired.loc[(paired["seed"] == "1") & (paired["site_id"] == "a"), "actual"] = 11
+        with self.assertRaisesRegex(ValueError, "Inconsistent actual across seeds"):
+            audit(paired, self.sites)
+
     def test_rejects_inconsistent_mask_and_k(self):
         bad = self.rows.copy()
         bad.loc[0, "original_mask"] = 0
