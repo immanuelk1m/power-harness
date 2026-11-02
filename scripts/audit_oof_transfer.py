@@ -22,8 +22,8 @@ def audit(predictions, membership):
     if not predictions["ts"].astype(str).str.endswith("+09:00").all():
         raise ValueError("Timestamps must include the +09:00 KST offset")
     timestamps = pd.to_datetime(predictions["ts"], utc=True, errors="raise").dt.tz_convert("Asia/Seoul")
-    if not timestamps.between(pd.Timestamp("2024-01-01", tz="Asia/Seoul"), pd.Timestamp("2025-01-01", tz="Asia/Seoul"), inclusive="left").all():
-        raise ValueError("Only 2024 OOF timestamps are permitted")
+    if not timestamps.between(pd.Timestamp("2024-01-01", tz="Asia/Seoul"), pd.Timestamp("2024-12-31 17:00", tz="Asia/Seoul"), inclusive="left").all():
+        raise ValueError("Only 2024 pre-cutoff OOF timestamps are permitted")
     if not predictions["seed"].astype(str).str.fullmatch(r"(?:0|[1-9][0-9]*)").all():
         raise ValueError("Invalid seed")
     if not predictions["original_mask"].isin([0, 1, False, True]).all():
