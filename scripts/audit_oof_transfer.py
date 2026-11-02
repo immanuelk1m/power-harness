@@ -39,7 +39,7 @@ def audit(predictions, membership):
     rows = predictions.copy()
     rows[["actual", "control", "candidate", "smp", "k"]] = numeric
     rows["ts"] = timestamps
-    if predictions.duplicated(["seed", "ts", "site_id"]).any():
+    if rows.duplicated(["seed", "ts", "site_id"]).any():
         raise ValueError("Duplicate seed/ts/site_id")
     rows = rows.merge(membership, on="site_id", how="left", validate="many_to_one")
     if rows["group"].isna().any():
