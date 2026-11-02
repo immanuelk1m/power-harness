@@ -38,6 +38,12 @@ class OofTransferTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Duplicate"):
             audit(pd.concat([self.rows, self.rows.iloc[:1]]), self.sites)
 
+    def test_rejects_duplicate_after_timestamp_normalization(self):
+        rows = self.rows.assign(ts="2024-11-01T12:00:00.000+09:00")
+        duplicate = rows.iloc[:1].assign(ts="2024-11-01T12:00:00.000000+09:00")
+        with self.assertRaisesRegex(ValueError, "Duplicate"):
+            audit(pd.concat([rows, duplicate], ignore_index=True), self.sites)
+
     def test_rejects_conflicting_actual_across_seeds(self):
         paired = pd.concat([self.rows, self.rows.assign(seed="1")], ignore_index=True)
         self.assertEqual(audit(paired, self.sites)["mask_group_hours"]["original_mask"], 4)
