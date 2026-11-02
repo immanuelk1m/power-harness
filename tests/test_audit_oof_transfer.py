@@ -39,11 +39,11 @@ class OofTransferTests(unittest.TestCase):
             audit(pd.concat([self.rows, self.rows.iloc[:1]]), self.sites)
 
     def test_first_issuance_cutoff_is_exclusive(self):
-        before = self.rows.assign(ts="2024-12-31T16:00:00+09:00")
+        before = self.rows.assign(ts="2024-12-31T16:00:00+09:00", k=1)
         self.assertTrue(audit(before, self.sites)["rows"])
         for ts in ("2024-12-31T17:00:00+09:00", "2024-12-31T23:00:00+09:00"):
             with self.subTest(ts=ts), self.assertRaisesRegex(ValueError, "pre-cutoff"):
-                audit(self.rows.assign(ts=ts), self.sites)
+                audit(self.rows.assign(ts=ts, k=1), self.sites)
 
     def test_rejects_duplicate_after_timestamp_normalization(self):
         rows = self.rows.assign(ts="2024-11-01T12:00:00.000+09:00")
