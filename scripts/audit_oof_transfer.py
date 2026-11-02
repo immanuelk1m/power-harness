@@ -24,8 +24,6 @@ def audit(predictions, membership):
     timestamps = pd.to_datetime(predictions["ts"], utc=True, errors="raise").dt.tz_convert("Asia/Seoul")
     if not timestamps.between(pd.Timestamp("2024-01-01", tz="Asia/Seoul"), pd.Timestamp("2025-01-01", tz="Asia/Seoul"), inclusive="left").all():
         raise ValueError("Only 2024 OOF timestamps are permitted")
-    if predictions.duplicated(["seed", "ts", "site_id"]).any():
-        raise ValueError("Duplicate seed/ts/site_id")
     if not predictions["seed"].astype(str).str.fullmatch(r"(?:0|[1-9][0-9]*)").all():
         raise ValueError("Invalid seed")
     if not predictions["original_mask"].isin([0, 1, False, True]).all():
@@ -41,6 +39,8 @@ def audit(predictions, membership):
     rows = predictions.copy()
     rows[["actual", "control", "candidate", "smp", "k"]] = numeric
     rows["ts"] = timestamps
+    if predictions.duplicated(["seed", "ts", "site_id"]).any():
+        raise ValueError("Duplicate seed/ts/site_id")
     rows = rows.merge(membership, on="site_id", how="left", validate="many_to_one")
     if rows["group"].isna().any():
         raise ValueError("Unknown site_id")
